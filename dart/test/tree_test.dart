@@ -121,6 +121,41 @@ void main() {
       keys.insert(at, k);
     }
   });
+
+  test('edits text by paragraph as the whole flow would be edited', () {
+    final random = Random(11);
+    const pieces = ['a', 'b\n', '\n', 'é😀', 'cd'];
+    for (var round = 0; round < 200; round++) {
+      var expected = Delta()
+        ..insert('one\ntwo', {'b': '1'})
+        ..insert('\n\nthree\n');
+      final tree = Tree.fromEdit(Edit([Change.create(Node(id: 't', type: 'text', key: 'V', text: expected))]))!;
+      for (var k = 0; k < 15; k++) {
+        final length = expected.length;
+        final start = random.nextInt(length);
+        final delete = random.nextInt(length - start);
+        final d = Delta()
+          ..retain(start)
+          ..delete(start + delete == length ? delete - 1 : delete)
+          ..insert(random.nextBool() ? pieces[random.nextInt(pieces.length)] : '', random.nextInt(3) == 0 ? {'i': '1'} : null);
+        if (random.nextInt(4) == 0) d.retain(1, {'u': '1'});
+        final before = tree['t']!.text!;
+        final undo = tree.apply(Edit([Change.text('t', d)]));
+        if (undo == null) {
+          expect(tree['t']!.text, before);
+          continue;
+        }
+        expected = expected.compose(d);
+        expect(tree['t']!.text, expected, reason: '$d on $before');
+        expect(tree['t']!.textLength, expected.length);
+        if (random.nextInt(5) == 0) {
+          tree.apply(undo);
+          expect(tree['t']!.text, before);
+          expected = before;
+        }
+      }
+    }
+  });
 }
 
 var _next = 0;

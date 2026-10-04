@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'delta.dart';
 import 'diff.dart';
+import 'flow.dart';
 import 'grid.dart';
 
 /// One element of a [Tree]: a slide, a shape, the body of a text file, a
@@ -18,8 +19,19 @@ class Node {
     this.parent = '',
     required this.key,
     this.attributes = const {},
-    this.text,
+    this._text,
     this.grid,
+  }) : _flow = null;
+
+  const Node._({
+    required this.id,
+    required this.type,
+    required this.parent,
+    required this.key,
+    required this.attributes,
+    required this._text,
+    required this._flow,
+    required this.grid,
   });
 
   final String id;
@@ -34,19 +46,28 @@ class Node {
   /// JSON values, never null.
   final Map<String, Object?> attributes;
 
+  final Delta? _text;
+
+  /// The flow as a tree keeps it once edited: by paragraph.
+  final Flow? _flow;
+
   /// The node's flow of text, if it holds one.
-  final Delta? text;
+  Delta? get text => _flow?.delta ?? _text;
+
+  /// The length of [text], without making it.
+  int? get textLength => _flow?.length ?? _text?.length;
 
   /// The node's cells, if it holds some.
   final Grid? grid;
 
-  Node _with({String? key, Map<String, Object?>? attributes, Delta? text, Grid? grid}) => Node(
+  Node _with({String? key, Map<String, Object?>? attributes, Delta? text, Flow? flow, Grid? grid}) => Node._(
     id: id,
     type: type,
     parent: parent,
     key: key ?? this.key,
     attributes: attributes ?? this.attributes,
-    text: text ?? this.text,
+    text: flow != null ? null : (text ?? _text),
+    flow: flow ?? (text != null ? null : _flow),
     grid: grid ?? this.grid,
   );
 
@@ -603,8 +624,17 @@ class Tree {
         saved.add((c.id, node));
         _put(c.id, node._with(key: c.key.isEmpty ? null : c.key, attributes: attributes));
       case ChangeKind.text:
-        final text = node.text;
         final delta = c.text!;
+        final flow = node._flow ?? (node._text == null ? null : Flow.of(node._text));
+        if (flow != null) {
+          final (result, inverse) = flow.apply(delta) ?? (null, null);
+          if (result == null) return false;
+          undo.add(Change.text(c.id, inverse!));
+          saved.add((c.id, node));
+          _put(c.id, node._with(flow: result));
+          return true;
+        }
+        final text = node.text;
         if (text == null || delta.baseLength > text.length || _deletesLast(delta, text.length)) return false;
         final result = text.compose(delta);
         if (!_isFlow(result)) return false;
@@ -667,7 +697,7 @@ class Tree {
     _length += _size(node);
   }
 
-  static int _size(Node node) => 1 + (node.text?.length ?? 0) + (node.grid?.length ?? 0);
+  static int _size(Node node) => 1 + (node.textLength ?? 0) + (node.grid?.length ?? 0);
 
   static int _compare(Node a, Node b) {
     final byKey = a.key.compareTo(b.key);

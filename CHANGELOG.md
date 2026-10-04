@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-10-04
+
+- Dart: a tree keeps the text of its nodes paragraph by paragraph, in
+  blocks, as the Go package does: a keystroke in a note of 1 MB no longer
+  copies the note (from 22 ms to about 1 ms under `flutter test`).
+  `Node.text` is made the first time it is read after an edit;
+  `Node.textLength` tells its length without making it.
+
 ## 0.1.1 — 2026-10-04
 
 - A keystroke in a long paragraph no longer walks through it a dozen
