@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 var update = flag.Bool("update", false, "rewrite the vectors in testdata/ot")
@@ -362,5 +363,21 @@ func writeVectors[V any](t *testing.T, path string, vectors []V) {
 	old, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(old, data) {
 		t.Fatalf("%s is stale: go test ./ot -run Vectors -update", path)
+	}
+}
+
+func TestUTF16Lengths(t *testing.T) {
+	for _, s := range []string{"", "a", "été", "😀", strings.Repeat("abcdefgh", 3) + "é" + strings.Repeat("x", 17) + "😀z"} {
+		units := utf16.Encode([]rune(s))
+		if got := utf16Len(s); got != len(units) {
+			t.Errorf("utf16Len(%q) = %d, want %d", s, got, len(units))
+		}
+		for n := range len(units) + 1 {
+			i, ok := utf16Advance(s, 0, n)
+			split := n > 0 && units[n-1] >= 0xD800 && units[n-1] < 0xDC00
+			if ok == split || ok && utf16Len(s[:i]) != n {
+				t.Errorf("utf16Advance(%q, %d) = %d, %v", s, n, i, ok)
+			}
+		}
 	}
 }

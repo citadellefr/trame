@@ -51,7 +51,7 @@ type para struct {
 
 // NewDoc makes a document of a flow, which only inserts.
 func NewDoc(flow Delta) (*Doc, error) {
-	paras, err := paragraphs(flow)
+	paras, err := paragraphs(flow, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (d *Doc) Apply(delta Delta) error {
 	if err != nil {
 		return err
 	}
-	paras, err := paragraphs(edited)
+	paras, err := paragraphs(edited, size+local.Change())
 	if err != nil {
 		return err
 	}
@@ -178,11 +178,14 @@ func deletesLast(delta Delta, size int) bool {
 	return false
 }
 
-// paragraphs splits a flow after each mark, the last one included.
-func paragraphs(flow Delta) ([]para, error) {
+// paragraphs splits a flow after each mark, the last one included. When the
+// size of the flow is known, the last paragraph is not measured: a keystroke
+// in a long paragraph does not walk through it again.
+func paragraphs(flow Delta, size int) ([]para, error) {
 	var paras []para
 	var p para
-	for _, o := range flow {
+	measured := 0
+	for k, o := range flow {
 		if o.Insert == "" {
 			return nil, ErrInvalid
 		}
@@ -190,22 +193,25 @@ func paragraphs(flow Delta) ([]para, error) {
 		for text != "" {
 			i := strings.IndexByte(text, '\n')
 			if i < 0 {
-				p.add(Op{Insert: text, Attrs: o.Attrs})
+				p.flow = p.flow.Push(Op{Insert: text, Attrs: o.Attrs})
 				break
 			}
-			p.add(Op{Insert: text[:i+1], Attrs: o.Attrs})
+			p.flow = p.flow.Push(Op{Insert: text[:i+1], Attrs: o.Attrs})
+			text = text[i+1:]
+			if size >= 0 && k == len(flow)-1 && text == "" {
+				p.size = size - measured
+			} else {
+				for _, q := range p.flow {
+					p.size += q.Len()
+				}
+				measured += p.size
+			}
 			paras = append(paras, p)
 			p = para{}
-			text = text[i+1:]
 		}
 	}
 	if p.flow != nil {
 		return nil, ErrNoMark
 	}
 	return paras, nil
-}
-
-func (p *para) add(o Op) {
-	p.flow = p.flow.Push(o)
-	p.size += o.Len()
 }

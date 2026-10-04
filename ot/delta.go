@@ -127,7 +127,7 @@ func (d Delta) chop() Delta {
 
 // Compose is the delta that does a then b.
 func Compose(a, b Delta) (Delta, error) {
-	x, y := iterator{ops: a}, iterator{ops: b}
+	x, y := iterate(a), iterate(b)
 	var out Delta
 	for x.more() || y.more() {
 		if y.kind() == kindInsert {
@@ -161,7 +161,7 @@ func Compose(a, b Delta) (Delta, error) {
 // insert at the same place, aFirst says whose text comes first; when both set
 // the same attribute, the one ordered second wins.
 func Transform(a, b Delta, aFirst bool) Delta {
-	x, y := iterator{ops: a}, iterator{ops: b}
+	x, y := iterate(a), iterate(b)
 	var out Delta
 	for x.more() || y.more() {
 		if x.kind() == kindInsert && (aFirst || y.kind() != kindInsert) {
@@ -257,8 +257,22 @@ const (
 type iterator struct {
 	ops    Delta
 	i      int
+	length int // of the current op, in UTF-16 units, -1 until measured
 	offset int // in the current op, in UTF-16 units
 	byteAt int // the same offset in bytes, for inserts
+}
+
+func iterate(d Delta) iterator {
+	return iterator{ops: d, length: -1}
+}
+
+// opLen is the length of the current op, measured once: that of a long
+// insert takes a walk through its text.
+func (it *iterator) opLen() int {
+	if it.length < 0 {
+		it.length = it.ops[it.i].Len()
+	}
+	return it.length
 }
 
 func (it *iterator) more() bool {
@@ -282,7 +296,7 @@ func (it *iterator) peekLen() int {
 	if it.i == len(it.ops) {
 		return infinite
 	}
-	return it.ops[it.i].Len() - it.offset
+	return it.opLen() - it.offset
 }
 
 // next hands out the next n units, or the rest of the current op if shorter.
@@ -297,7 +311,7 @@ func (it *iterator) cut(n int) (Op, error) {
 		return Op{Retain: n}, nil
 	}
 	o := it.ops[it.i]
-	left := o.Len() - it.offset
+	left := it.opLen() - it.offset
 	whole := n >= left
 	if whole {
 		n = left
@@ -321,7 +335,7 @@ func (it *iterator) cut(n int) (Op, error) {
 	}
 	if whole {
 		it.i++
-		it.offset, it.byteAt = 0, 0
+		it.length, it.offset, it.byteAt = -1, 0, 0
 	} else {
 		it.offset += n
 	}
@@ -330,13 +344,38 @@ func (it *iterator) cut(n int) (Op, error) {
 
 func utf16Len(s string) int {
 	n := 0
-	for _, r := range s {
-		n++
-		if r >= 0x10000 {
-			n++
+	for i := 0; i < len(s); {
+		if k := asciiRun(s, i, len(s)-i); k > 0 {
+			n += k
+			i += k
+			continue
 		}
+		// a unit for every byte that starts a character, two for those of
+		// four bytes, which leave the basic plane
+		if b := s[i]; b&0xC0 != 0x80 {
+			n++
+			if b >= 0xF0 {
+				n++
+			}
+		}
+		i++
 	}
 	return n
+}
+
+// asciiRun is how many bytes from i on, n at most, are ASCII, eight at a
+// time: most text is, and a long insert is measured at each keystroke.
+func asciiRun(s string, i, n int) int {
+	j := i
+	for j+8 <= len(s) && j+8 <= i+n {
+		w := uint64(s[j]) | uint64(s[j+1])<<8 | uint64(s[j+2])<<16 | uint64(s[j+3])<<24 |
+			uint64(s[j+4])<<32 | uint64(s[j+5])<<40 | uint64(s[j+6])<<48 | uint64(s[j+7])<<56
+		if w&0x8080808080808080 != 0 {
+			break
+		}
+		j += 8
+	}
+	return j - i
 }
 
 // utf16Advance is the byte offset n UTF-16 units after the byte offset from,
@@ -344,6 +383,11 @@ func utf16Len(s string) int {
 func utf16Advance(s string, from, n int) (int, bool) {
 	i := from
 	for n > 0 {
+		if k := asciiRun(s, i, n); k > 0 {
+			i += k
+			n -= k
+			continue
+		}
 		if i >= len(s) {
 			return i, false
 		}
