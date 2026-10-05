@@ -195,6 +195,7 @@ class DocSession extends ChangeNotifier {
   Object? _failure;
   String? _saveError;
   var _readOnly = false;
+  var _id = '';
   var _name = '';
   var _running = false;
   var _disposed = false;
@@ -232,7 +233,10 @@ class DocSession extends ChangeNotifier {
 
   bool get readOnly => _readOnly;
 
-  /// The name the server knows this client by, which signs its comments.
+  /// Who the server knows this client as: the id of a [DocPeer], which
+  /// signs what it writes, and the name of its comments.
+  String get id => _id;
+
   String get name => _name;
 
   Iterable<DocPeer> get peers => _peers.values;
@@ -547,6 +551,7 @@ class DocSession extends ChangeNotifier {
 
   void _hello(Map<String, Object?> hello) {
     _readOnly = hello['ro'] == true;
+    _id = '${hello['id'] ?? ''}';
     _name = '${hello['name'] ?? ''}';
     _savedVersion = _int(hello['saved']);
     _saveError = hello['error'] is String ? hello['error']! as String : null;

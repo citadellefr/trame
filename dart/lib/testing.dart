@@ -33,6 +33,7 @@ class FakeHub {
     link.frame({
       't': 'hello',
       'sid': link.sid,
+      'id': clientId,
       'name': 'Peer ${link.sid}',
       'epoch': epoch,
       'v': version,

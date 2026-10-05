@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-10-05
+
+- `Follower.Follow` is told who made the edit it follows, and the
+  documentation says what was already so: it applies its changes itself.
+- `hello` tells the client the `id` it is known by; the Dart session keeps
+  it as `DocSession.id`, to sign what it writes.
+
 ## 0.2.0 — 2026-10-04
 
 - Dart: a tree keeps the text of its nodes paragraph by paragraph, in

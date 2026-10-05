@@ -136,6 +136,7 @@ func (s *Store) File(key string) string {
 type Frame struct {
 	T     string          `json:"t"`
 	SID   uint32          `json:"sid"`
+	ID    string          `json:"id"`
 	Name  string          `json:"name"`
 	N     uint64          `json:"n"`
 	V     uint64          `json:"v"`

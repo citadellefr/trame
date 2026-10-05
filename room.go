@@ -101,6 +101,7 @@ func (r *room) join(p *peer) {
 	f, _ := json.Marshal(hello{
 		T:        "hello",
 		SID:      p.sid,
+		ID:       p.info.ID,
 		Name:     p.info.Name,
 		Epoch:    r.epoch,
 		Version:  r.version,
@@ -229,7 +230,7 @@ func (r *room) apply(p *peer, in *inbound) {
 	r.record(e, p, client, in.N)
 	p.send(ackFrame(in.N, r.version))
 	if f, ok := r.file.(Follower); ok {
-		if more := f.Follow(r.doc, e, since); len(more) > 0 {
+		if more := f.Follow(r.doc, e, since, p.info); len(more) > 0 {
 			r.record(more, nil, "", 0)
 		}
 	}

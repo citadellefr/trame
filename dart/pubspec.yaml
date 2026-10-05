@@ -1,6 +1,6 @@
 name: trame
 description: The client of trame, the Go hub of collaborative editors - operational transforms on trees of nodes and flows of text, and the session that keeps a document in step with the hub, offline edits included.
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/citadellefr/trame
 issue_tracker: https://github.com/citadellefr/trame/issues
 topics: [collaboration, ot, editor, websocket]

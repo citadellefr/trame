@@ -14,9 +14,10 @@ type File interface {
 	Encode(doc *ot.Tree) ([]byte, error)
 }
 
-// Follower is a File that follows an edit with changes of its own, which
-// every peer receives as the server's: the formulas of a workbook calculated
-// again. since are the edits the edit was rebased over.
+// Follower is a File that follows an edit with changes of its own, applied
+// to doc and answered, which every peer receives as the server's: the
+// formulas of a workbook calculated again. since are the edits the edit was
+// rebased over, by who made it.
 type Follower interface {
-	Follow(doc *ot.Tree, e ot.Edit, since []ot.Edit) ot.Edit
+	Follow(doc *ot.Tree, e ot.Edit, since []ot.Edit, by Peer) ot.Edit
 }

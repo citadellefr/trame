@@ -53,7 +53,7 @@ exchanges JSON frames with the hub:
 
 | From | Frame | Meaning |
 |---|---|---|
-| hub | `hello` | who the client is (`sid`), who else is there, which stay in memory of the document (`epoch`) |
+| hub | `hello` | who the client is (`sid`, `id`, `name`), who else is there, which stay in memory of the document (`epoch`) |
 | client | `sync` | the `epoch` and revision `v` of the document it holds, if any |
 | hub | `doc` | the whole document at revision `v`, as the edit `d` that creates its nodes, and `ack`, the last edit of this client applied |
 | hub | `op`, `ack` … `ready` | or else the edits it missed since `v`, its own acknowledged |

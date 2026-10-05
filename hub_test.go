@@ -34,7 +34,7 @@ func TestEditsAreRebasedAndSaved(t *testing.T) {
 	h := NewHub(store, Text, fastOptions())
 
 	alice, hello, doc := join(t, h, "a.txt", Peer{ID: "1", Name: "Alice", Client: "ca"})
-	if hello.SID != 1 || hello.Name != "Alice" || len(hello.Peers) != 0 || hello.Epoch == "" {
+	if hello.SID != 1 || hello.ID != "1" || hello.Name != "Alice" || len(hello.Peers) != 0 || hello.Epoch == "" {
 		t.Fatalf("hello = %+v", hello)
 	}
 	if string(doc.D) != `[{"o":"new","id":"body","t":"text","k":"V","x":[{"i":"one\ntwo\n"}]}]` || doc.V != 0 {
@@ -388,5 +388,36 @@ func TestGoneDocumentDisconnectsAndUnloads(t *testing.T) {
 	h.mu.Unlock()
 	if loaded != 0 {
 		t.Fatalf("%d documents still loaded", loaded)
+	}
+}
+
+// followed is a text file that follows each edit with its author's id, put
+// at the end of the text.
+type followed struct{ File }
+
+func (f followed) Follow(doc *ot.Tree, e ot.Edit, _ []ot.Edit, by Peer) ot.Edit {
+	n := doc.Node(TextBody).Text.Len()
+	more := ot.Edit{{Op: ot.OpTxt, ID: TextBody, Text: ot.Delta{{Retain: n - 1}, {Insert: by.ID}}}}
+	if doc.Apply(more) != nil {
+		return nil
+	}
+	return more
+}
+
+func TestFollowerKnowsTheAuthor(t *testing.T) {
+	store := trametest.NewStore()
+	h := NewHub(store, func(key string, data []byte) (*ot.Tree, File, error) {
+		doc, f, err := Text(key, data)
+		return doc, followed{f}, err
+	}, fastOptions())
+	a, _, _ := join(t, h, "a.txt", Peer{ID: "alice"})
+	a.Send(`{"t":"op","n":1,"v":0,"d":[{"o":"txt","id":"body","x":[{"i":"x"}]}]}`)
+	a.Expect("ack")
+	if f := a.Expect("op"); f.SID != 0 || string(f.D) != `[{"o":"txt","id":"body","x":[{"r":1},{"i":"alice"}]}]` {
+		t.Fatalf("op = %+v", f)
+	}
+	<-store.Saves
+	if got := store.File("a.txt"); got != "xalice" {
+		t.Fatalf("saved %q", got)
 	}
 }

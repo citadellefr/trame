@@ -27,8 +27,9 @@ void main() {
   });
 
   test('comes online with the document', () async {
-    final s = await open();
+    final s = await open('me');
     expect(s.status, DocStatus.online);
+    expect(s.id, 'me');
     expect(s.text, 'one\ntwo');
     expect(s.saved, isTrue);
   });
