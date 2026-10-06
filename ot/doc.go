@@ -87,12 +87,32 @@ func (d *Doc) Clone() *Doc {
 
 // Delta is the whole flow as inserts.
 func (d *Doc) Delta() Delta {
+	return flowOf(d.paras)
+}
+
+// flowOf joins paragraphs into one flow, runs of equal attributes as one
+// insert. The text of a run is built once: joining it paragraph by paragraph
+// would copy it as many times.
+func flowOf(paras []para) Delta {
 	var out Delta
-	for _, p := range d.paras {
-		for _, o := range p.flow {
-			out = out.Push(o)
+	var run strings.Builder
+	var attrs Attrs
+	end := func() {
+		if run.Len() > 0 {
+			out = append(out, Op{Insert: run.String(), Attrs: attrs})
+			run = strings.Builder{}
 		}
 	}
+	for _, p := range paras {
+		for _, o := range p.flow {
+			if !sameAttrs(o.Attrs, attrs) {
+				end()
+				attrs = o.Attrs
+			}
+			run.WriteString(o.Insert)
+		}
+	}
+	end()
 	return out
 }
 
@@ -129,14 +149,11 @@ func (d *Doc) Apply(delta Delta) error {
 		last++
 	}
 
-	var region Delta
 	size := 0
 	for _, p := range d.paras[first : last+1] {
-		for _, o := range p.flow {
-			region = region.Push(o)
-		}
 		size += p.size
 	}
+	region := flowOf(d.paras[first : last+1])
 	local := Delta{}.Push(Op{Retain: start - offset})
 	for _, o := range delta {
 		local = local.Push(o)

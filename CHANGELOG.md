@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A client connecting to a large document no longer waits for the hub to join
+  its paragraphs one copy at a time: a document of 200 pages went from a
+  second and a gigabyte of memory to a few milliseconds. Applying an edit
+  across many paragraphs gains the same.
 - A document with no node is sent as `[]`, not `null`: a client reads `null`
   as no document at all, and never opens an empty board.
 - Dart: `DocSession.share` shows the others something of this person beside
