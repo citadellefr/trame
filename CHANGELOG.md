@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `MetaStore` and `MetaFile`: a format can keep something beside its file
+  (the comments of a note) in a store that has room for it.
+
 ## 0.3.0 — 2026-10-05
 
 - `Follower.Follow` is told who made the edit it follows, and the
