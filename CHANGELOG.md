@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A document with no node is sent as `[]`, not `null`: a client reads `null`
+  as no document at all, and never opens an empty board.
 - Dart: `DocSession.share` shows the others something of this person beside
   its selection — a pointer, a stroke being drawn — and `onShared` tells what
   a peer shares, as presence frames carry it. The hub already relayed them

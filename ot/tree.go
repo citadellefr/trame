@@ -191,7 +191,9 @@ func (t *Tree) Children(parent string) []*Node {
 
 // Edit is the whole tree as the changes that create it, parents first.
 func (t *Tree) Edit() Edit {
-	var out Edit
+	// empty, not nil: a tree with no node is `[]` on the wire, and `null` is
+	// not a document to a client
+	out := Edit{}
 	var walk func(parent string)
 	walk = func(parent string) {
 		for _, n := range t.Children(parent) {
