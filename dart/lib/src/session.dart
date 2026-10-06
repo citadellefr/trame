@@ -211,6 +211,7 @@ class DocSession extends ChangeNotifier {
   final _undo = <Edit>[];
   final _redo = <Edit>[];
   final _changes = StreamController<Edit>.broadcast(sync: true);
+  final _authored = StreamController<({Edit edit, DocPeer? author})>.broadcast(sync: true);
   final _rejections = StreamController<String>.broadcast();
 
   DocStatus _status = DocStatus.connecting;
@@ -284,6 +285,11 @@ class DocSession extends ChangeNotifier {
   /// Every change made to [document], local or not, once it is made.
   Stream<Edit> get changes => _changes.stream;
 
+  /// The edits of others, with who made them, once [changes] has told them:
+  /// the author is null when the hub does not say who is connected under that
+  /// id any more.
+  Stream<({Edit edit, DocPeer? author})> get authored => _authored.stream;
+
   /// Why the server refused a local edit, which has been rolled back.
   Stream<String> get rejections => _rejections.stream;
 
@@ -321,6 +327,7 @@ class DocSession extends ChangeNotifier {
     _draftTimer?.cancel();
     unawaited(stop());
     unawaited(_changes.close());
+    unawaited(_authored.close());
     unawaited(_rejections.close());
     (presence as _Presence).dispose();
     super.dispose();
@@ -490,11 +497,18 @@ class DocSession extends ChangeNotifier {
   /// values replacing earlier ones under the same key, and null saying it is
   /// gone. The key "s" is the selection's. Nothing is kept for a connection
   /// that is down: what a peer shares is told again when it is back.
-  void share(Map<String, Object?> data) {
+  ///
+  /// With [now] the frame goes at once, for a caller that paces what it
+  /// shares itself and whose values must not be merged with the next.
+  void share(Map<String, Object?> data, {bool now = false}) {
     assert(!data.containsKey('s'), 'the key "s" is the selection');
     if (_transport == null || !_synced) return;
     _shared.addAll(data);
-    _schedulePresence();
+    if (now) {
+      _flushPresence();
+    } else {
+      _schedulePresence();
+    }
   }
 
   void _schedulePresence() {
@@ -752,7 +766,9 @@ class DocSession extends ChangeNotifier {
     }
     _rev = _int(frame['v']);
     _rebaseHistory(edit);
-    _show(edit, author: _int(frame['sid']));
+    final sid = _int(frame['sid']);
+    _show(edit, author: sid);
+    _authored.add((edit: edit, author: _peers[sid]));
     notifyListeners();
     (presence as _Presence).changed();
   }

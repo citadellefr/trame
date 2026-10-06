@@ -215,6 +215,28 @@ void main() {
     unawaited(b.stop());
   });
 
+  test('shares at once on demand, and tells who made what others did', () async {
+    final a = await open();
+    final b = await open();
+    final told = <Map<String, Object?>>[];
+    a.onShared = (_, data) => told.add(data);
+    final authors = <int?>[];
+    final sub = a.authored.listen((e) => authors.add(e.author?.sid));
+    addTearDown(sub.cancel);
+    b.share({'d': 1}, now: true);
+    b.share({'d': 2}, now: true);
+    await hub.settle();
+    expect(told, [
+      {'d': 1},
+      {'d': 2},
+    ]);
+
+    b.replace(0, 0, 'x');
+    await hub.settle();
+    expect(authors, [a.peers.single.sid]);
+    unawaited(b.stop());
+  });
+
   test('shares nothing while the connection is down', () async {
     final a = await open();
     final b = await open();
