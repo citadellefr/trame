@@ -110,6 +110,26 @@ void main() {
     }
   });
 
+  test('renames the attributes of text that name a node', () {
+    final edit = Edit([
+      Change.create(const Node(id: 'old', type: 'thread', key: 'V')),
+      Change.text('body', Delta()
+        ..retain(2)
+        ..retain(3, {'c.old': '1', 'by': 'x'})
+        ..insert('!', {'k.old': 'x'})),
+    ]);
+    final got = edit.renamed({'old': 'new'});
+    expect(got.changes.first.id, 'new');
+    expect(
+      got.changes.last.text!.toJson(),
+      (Delta()
+            ..retain(2)
+            ..retain(3, {'c.new': '1', 'by': 'x'})
+            ..insert('!', {'k.new': 'x'}))
+          .toJson(),
+    );
+  });
+
   test('keys sort between their neighbours', () {
     final random = Random(4);
     final keys = [keyBetween('', '')];

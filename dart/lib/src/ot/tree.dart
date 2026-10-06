@@ -368,9 +368,11 @@ class Edit {
     return Edit(out);
   }
 
-  /// This edit with the ids of [names] replaced, parents included.
+  /// This edit with the ids of [names] replaced, parents included. The
+  /// attributes of text named `prefix.id` follow the node they name.
   Edit renamed(Map<String, String> names) => Edit([
-    for (final c in changes)
+    for (final c0 in changes)
+      if (_followed(c0, names) case final c)
       if (!names.containsKey(c.id) && !names.containsKey(c.parent))
         c
       else
@@ -395,6 +397,29 @@ class Edit {
           ChangeKind.remove => Change.remove(names[c.id]!, c.dim, c.at, c.n),
         },
   ]);
+
+  static Change _followed(Change c, Map<String, String> names) {
+    if (c.kind != ChangeKind.text) return c;
+    String rename(String key) {
+      final dot = key.lastIndexOf('.');
+      final id = dot < 0 ? null : names[key.substring(dot + 1)];
+      return id == null ? key : '${key.substring(0, dot + 1)}$id';
+    }
+
+    final ops = c.text!.ops;
+    if (!ops.any((op) => op.attributes?.keys.any((k) => rename(k) != k) ?? false)) return c;
+    return Change.text(
+      c.id,
+      Delta([
+        for (final op in ops)
+          switch (op) {
+            Op(attributes: null) => op,
+            Op(:final insert?, :final attributes?) => Op.insert(insert, {for (final e in attributes.entries) rename(e.key): e.value}),
+            Op(:final attributes?) => Op.retain(op.retain, {for (final e in attributes.entries) rename(e.key): e.value}),
+          },
+      ]),
+    );
+  }
 
   @override
   bool operator ==(Object other) => other is Edit && listEquals(other.changes, changes);

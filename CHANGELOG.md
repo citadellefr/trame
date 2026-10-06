@@ -4,6 +4,8 @@
 
 - `MetaStore` and `MetaFile`: a format can keep something beside its file
   (the comments of a note) in a store that has room for it.
+- Dart: when an undo gives new ids to the nodes it brings back, the
+  attributes of text named `prefix.id` follow them.
 
 ## 0.3.0 — 2026-10-05
 
