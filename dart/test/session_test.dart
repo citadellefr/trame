@@ -6,6 +6,8 @@ import 'package:trame/testing.dart';
 import 'package:trame/trame.dart';
 
 void main() {
+  group('drafts', _draftTests);
+
   late FakeHub hub;
   final sessions = <DocSession>[];
 
@@ -234,4 +236,71 @@ Future<void> _nodesConverge(int seed, Future<DocSession> Function() open, FakeHu
   for (final s in editors) {
     expect(s.document.toEdit(), hub().doc.toEdit());
   }
+}
+
+class _Drafts implements DocDrafts {
+  String? kept;
+
+  @override
+  Future<String?> load() async => kept;
+
+  @override
+  Future<void> save(String draft) async => kept = draft;
+
+  @override
+  Future<void> clear() async => kept = null;
+}
+
+void _draftTests() {
+  late FakeHub hub;
+  setUp(() => hub = FakeHub('one\ntwo'));
+
+  test('edits unconfirmed when the app closes are found again and reach the document', () async {
+    final drafts = _Drafts();
+    final a = DocSession(hub.connect, clientId: 'a', drafts: drafts, draftDelay: const Duration(milliseconds: 20))..start();
+    await pumpEventQueue();
+    await hub.settle();
+    expect(drafts.kept, isNull);
+    await hub.links.single.drop();
+    await pumpEventQueue();
+    a.replace(3, 3, ' (a)');
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(drafts.kept, isNotNull);
+    a.dispose();
+
+    final b = DocSession(hub.connect, drafts: drafts, draftDelay: const Duration(milliseconds: 20))..start();
+    await pumpEventQueue();
+    expect(b.text, 'one (a)\ntwo');
+    expect(b.clientId, 'a');
+    await hub.settle();
+    expect(hub.text, 'one (a)\ntwo');
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(drafts.kept, isNull);
+    b.dispose();
+  });
+
+  test('a draft is rebased over what others did meanwhile, and what the hub applied is not applied twice', () async {
+    final drafts = _Drafts();
+    final a = DocSession(hub.connect, clientId: 'a', drafts: drafts, draftDelay: const Duration(milliseconds: 20))..start();
+    final c = DocSession(hub.connect, clientId: 'c')..start();
+    await pumpEventQueue();
+    await hub.settle();
+    a.replace(0, 0, 'x');
+    hub.links.first.deliverUp();
+    await hub.links.first.drop();
+    await pumpEventQueue();
+    a.replace(4, 4, '!');
+    c.replace(0, 0, 'C: ');
+    await hub.settle();
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    a.dispose();
+
+    final b = DocSession(hub.connect, drafts: drafts)..start();
+    await pumpEventQueue();
+    await hub.settle();
+    expect(hub.text, 'xC: one!\ntwo');
+    expect(b.text, hub.text);
+    b.dispose();
+    c.dispose();
+  });
 }

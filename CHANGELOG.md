@@ -4,6 +4,11 @@
 
 - `MetaStore` and `MetaFile`: a format can keep something beside its file
   (the comments of a note) in a store that has room for it.
+- Dart: `DocSession(drafts:)` keeps what the hub has not confirmed (the
+  document it was editing and its edits, those in flight apart) in a
+  `DocDrafts` store, and takes it up again when the document is opened
+  next, offline or not: the hub tells what it had applied, and the rest is
+  rebased over what changed meanwhile.
 - Dart: when an undo gives new ids to the nodes it brings back, the
   attributes of text named `prefix.id` follow them.
 

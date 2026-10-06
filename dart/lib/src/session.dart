@@ -53,6 +53,15 @@ class _WebSocketTransport implements DocTransport {
   Future<void> close() async => _channel.sink.close();
 }
 
+/// Where a session keeps what the hub has not confirmed of a document, so that
+/// closing the app offline loses nothing: the next session for the same
+/// document finds it with [load] and rebases it over what changed meanwhile.
+abstract interface class DocDrafts {
+  Future<String?> load();
+  Future<void> save(String draft);
+  Future<void> clear();
+}
+
 enum DocStatus { connecting, online, offline, closed }
 
 /// Why the server ended the session: the document could not be opened, or
@@ -172,7 +181,7 @@ class DocPeer {
 /// next ones wait behind it, offline included, and all of them are rebased
 /// over the edits of others as those arrive.
 class DocSession extends ChangeNotifier {
-  DocSession(this._connect, {String? clientId}) : clientId = clientId ?? randomId();
+  DocSession(this._connect, {String? clientId, this.drafts, this.draftDelay = const Duration(seconds: 2)}) : _clientId = clientId ?? randomId();
 
   static const _historyLimit = 500;
   static const _typingPause = Duration(milliseconds: 800);
@@ -180,7 +189,16 @@ class DocSession extends ChangeNotifier {
   static const _backoff = [1, 2, 5, 10, 20, 30];
 
   final DocConnector _connect;
-  final String clientId;
+  String _clientId;
+
+  /// Where what the hub has not confirmed is kept, if anywhere.
+  final DocDrafts? drafts;
+
+  /// How long unconfirmed edits wait before the draft is written, which
+  /// then follows at the same pace.
+  final Duration draftDelay;
+
+  String get clientId => _clientId;
 
   /// Notifies selection changes of peers, far more frequent than the others.
   final Listenable presence = _Presence();
@@ -218,6 +236,9 @@ class DocSession extends ChangeNotifier {
   var _sent = false;
   Edit? _buffer;
   DateTime? _lastTyping;
+  Timer? _draftTimer;
+  var _draftWritten = false;
+  var _draftRead = false;
 
   DocSelection? _selection;
   var _selectionDirty = false;
@@ -292,6 +313,7 @@ class DocSession extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _draftTimer?.cancel();
     unawaited(stop());
     unawaited(_changes.close());
     unawaited(_rejections.close());
@@ -379,7 +401,75 @@ class DocSession extends ChangeNotifier {
     } else {
       _buffer = _buffer?.compose(edit) ?? edit;
     }
+    _draftChanged();
     notifyListeners();
+  }
+
+  /// Keeps the draft a moment after the hub has failed to confirm what this
+  /// client holds, and drops it once everything is.
+  void _draftChanged() {
+    if (drafts == null || _doc == null) return;
+    _draftTimer ??= Timer(draftDelay, () => unawaited(_writeDraft()));
+  }
+
+  Future<void> _writeDraft() async {
+    _draftTimer = null;
+    final store = drafts;
+    if (store == null || _disposed) return;
+    final unconfirmed = _pending != 0 || _buffer != null;
+    try {
+      if (unconfirmed) {
+        await store.save(jsonEncode({
+          'client': _clientId,
+          'n': _n,
+          'base': _confirmed.toEdit().toJson(),
+          if (_inflight != null) 'inflight': _inflight!.toJson(),
+          if (_buffer != null) 'buffer': _buffer!.toJson(),
+        }));
+        _draftWritten = true;
+      } else if (_draftWritten) {
+        await store.clear();
+        _draftWritten = false;
+      }
+    } on Object catch (error) {
+      if (!_disposed) _rejections.add('$error');
+    }
+  }
+
+  /// Takes up what an earlier run left unconfirmed, before anything is
+  /// received: the document it was editing, its edits in flight included,
+  /// which the hub tells apart from those it has applied.
+  Future<void> _restore() async {
+    final store = drafts;
+    if (store == null || _draftRead) return;
+    _draftRead = true;
+    try {
+      final raw = await store.load();
+      if (raw == null || _doc != null || _disposed) return;
+      final json = jsonDecode(raw);
+      if (json is! Map<String, Object?>) throw const FormatException('draft');
+      final nodes = Edit.fromJson(json['base']);
+      final base = nodes == null ? null : Tree.fromEdit(nodes);
+      if (base == null) throw const FormatException('draft');
+      final inflight = json['inflight'] == null ? null : Edit.fromJson(json['inflight']);
+      final buffer = json['buffer'] == null ? null : Edit.fromJson(json['buffer']);
+      final doc = base.copy();
+      if (inflight != null && doc.apply(inflight) == null || buffer != null && doc.apply(buffer) == null) {
+        throw const FormatException('draft');
+      }
+      _clientId = '${json['client']}';
+      _n = _int(json['n']);
+      _confirmed = base;
+      _doc = doc;
+      _inflight = inflight;
+      _pending = inflight == null ? 0 : _n;
+      _buffer = buffer;
+      _draftWritten = true;
+      _changes.add(doc.toEdit());
+      notifyListeners();
+    } on Object catch (error) {
+      if (!_disposed) _rejections.add('$error');
+    }
   }
 
   /// Where this person's selection is, null once it left the document.
@@ -450,6 +540,8 @@ class DocSession extends ChangeNotifier {
 
   Future<void> _open() async {
     _setStatus(DocStatus.connecting);
+    await _restore();
+    if (!_running) return;
     final DocTransport transport;
     try {
       transport = await _connect(clientId);
@@ -647,6 +739,7 @@ class DocSession extends ChangeNotifier {
     _pending = 0;
     _inflight = null;
     _flush();
+    _draftChanged();
     notifyListeners();
   }
 
