@@ -203,6 +203,10 @@ class DocSession extends ChangeNotifier {
   /// Notifies selection changes of peers, far more frequent than the others.
   final Listenable presence = _Presence();
 
+  /// Told of what a peer shares besides its selection ([share]): the keys of
+  /// one presence frame, as they arrived.
+  void Function(DocPeer peer, Map<String, Object?> data)? onShared;
+
   final _peers = <int, DocPeer>{};
   final _undo = <Edit>[];
   final _redo = <Edit>[];
@@ -242,6 +246,7 @@ class DocSession extends ChangeNotifier {
 
   DocSelection? _selection;
   var _selectionDirty = false;
+  final _shared = <String, Object?>{};
   Timer? _presenceTimer;
 
   DocStatus get status => _status;
@@ -477,18 +482,36 @@ class DocSession extends ChangeNotifier {
     if (selection == _selection) return;
     _selection = selection;
     _selectionDirty = true;
+    _schedulePresence();
+  }
+
+  /// Shows the others something of this person that is not a selection — a
+  /// pointer, a stroke being drawn: sent with the next presence frame, later
+  /// values replacing earlier ones under the same key, and null saying it is
+  /// gone. The key "s" is the selection's. Nothing is kept for a connection
+  /// that is down: what a peer shares is told again when it is back.
+  void share(Map<String, Object?> data) {
+    assert(!data.containsKey('s'), 'the key "s" is the selection');
+    if (_transport == null || !_synced) return;
+    _shared.addAll(data);
+    _schedulePresence();
+  }
+
+  void _schedulePresence() {
     if (_presenceTimer?.isActive ?? false) return;
     _presenceTimer = Timer(_presenceEvery, _flushPresence);
   }
 
   void _flushPresence() {
     final transport = _transport;
-    if (transport == null || !_synced || !_selectionDirty) return;
-    _selectionDirty = false;
-    transport.send(jsonEncode({
-      't': 'eph',
-      'd': {'s': _selection?.toJson()},
-    }));
+    if (transport == null || !_synced || !_selectionDirty && _shared.isEmpty) return;
+    final data = <String, Object?>{..._shared};
+    _shared.clear();
+    if (_selectionDirty) {
+      data['s'] = _selection?.toJson();
+      _selectionDirty = false;
+    }
+    transport.send(jsonEncode({'t': 'eph', 'd': data}));
   }
 
   /// Applies a change others made to the document shown.
@@ -540,8 +563,10 @@ class DocSession extends ChangeNotifier {
 
   Future<void> _open() async {
     _setStatus(DocStatus.connecting);
-    await _restore();
-    if (!_running) return;
+    if (drafts != null) {
+      await _restore();
+      if (!_running) return;
+    }
     final DocTransport transport;
     try {
       transport = await _connect(clientId);
@@ -572,6 +597,7 @@ class DocSession extends ChangeNotifier {
     _transport = null;
     _subscription = null;
     _synced = false;
+    _shared.clear();
     _peers.clear();
     (presence as _Presence).changed();
     if (!_running) return;
@@ -765,9 +791,14 @@ class DocSession extends ChangeNotifier {
   void _presence(Map<String, Object?> frame) {
     final peer = _peers[_int(frame['sid'])];
     final data = frame['d'];
-    if (peer == null || data is! Map<String, Object?> || !data.containsKey('s')) return;
-    peer._selection = DocSelection.fromJson(data['s']);
-    (presence as _Presence).changed();
+    if (peer == null || data is! Map<String, Object?>) return;
+    if (data.containsKey('s')) peer._selection = DocSelection.fromJson(data['s']);
+    final shared = {
+      for (final entry in data.entries)
+        if (entry.key != 's') entry.key: entry.value,
+    };
+    if (shared.isNotEmpty) onShared?.call(peer, shared);
+    if (data.containsKey('s') || shared.isNotEmpty) (presence as _Presence).changed();
   }
 
   static DocPeer? _peer(Object? raw) {

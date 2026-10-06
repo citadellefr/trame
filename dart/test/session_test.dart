@@ -191,6 +191,46 @@ void main() {
     expect(s.text, '');
   });
 
+  test('shares what is not a selection, told as it arrived', () async {
+    final a = await open();
+    final b = await open();
+    final told = <(int, Map<String, Object?>)>[];
+    a.onShared = (peer, data) => told.add((peer.sid, data));
+    b.share({'c': [3, 4]});
+    b.share({'d': null});
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    await hub.settle();
+    expect(told, [
+      (
+        a.peers.single.sid,
+        {'c': [3, 4], 'd': null},
+      ),
+    ]);
+
+    // a selection travels beside it, in the same frame
+    told.clear();
+    b.share({'c': null});
+    b.select(const DocSelection('body', 1, 2));
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    await hub.settle();
+    expect(told.single.$2, {'c': null});
+    expect(a.peers.single.selection, const DocSelection('body', 1, 2));
+    unawaited(b.stop());
+  });
+
+  test('shares nothing while the connection is down', () async {
+    final a = await open();
+    final b = await open();
+    final told = <Map<String, Object?>>[];
+    a.onShared = (_, data) => told.add(data);
+    await hub.links.firstWhere((l) => l.client == b.clientId).drop();
+    b.share({'c': [1, 1]});
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    await hub.settle();
+    expect(told, isEmpty);
+    unawaited(b.stop());
+  });
+
   test('shows where others are, following the text', () async {
     final a = await open();
     final b = await open();
@@ -282,6 +322,7 @@ void _draftTests() {
   test('a draft is rebased over what others did meanwhile, and what the hub applied is not applied twice', () async {
     final drafts = _Drafts();
     final a = DocSession(hub.connect, clientId: 'a', drafts: drafts, draftDelay: const Duration(milliseconds: 20))..start();
+    await pumpEventQueue();
     final c = DocSession(hub.connect, clientId: 'c')..start();
     await pumpEventQueue();
     await hub.settle();
