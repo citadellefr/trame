@@ -1,6 +1,7 @@
 package trame
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -41,6 +42,7 @@ type room struct {
 	saveErr string
 
 	saveMu   sync.Mutex
+	meta     []byte // what the store keeps beside the file, as of the last load or save
 	kick     chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
@@ -75,12 +77,37 @@ func (r *room) load() {
 	if err == nil {
 		r.doc, r.file, err = r.hub.format(r.key, data)
 	}
+	if err == nil {
+		err = r.loadMeta()
+	}
 	if err != nil {
 		r.err = err
 		r.hub.forget(r)
 		return
 	}
 	go r.saveLoop()
+}
+
+// loadMeta hands the format what the store keeps beside the file, when both
+// have any.
+func (r *room) loadMeta() error {
+	f, ok := r.file.(MetaFile)
+	if !ok {
+		return nil
+	}
+	ms, ok := r.hub.store.(MetaStore)
+	if !ok {
+		return nil
+	}
+	meta, err := ms.LoadMeta(context.Background(), r.key)
+	if err != nil {
+		return err
+	}
+	if err := f.ReadMeta(r.doc, meta); err != nil {
+		return err
+	}
+	r.meta = meta
+	return nil
 }
 
 func (r *room) stop() {
@@ -329,6 +356,25 @@ func (r *room) saveLoop() {
 	}
 }
 
+// saveMeta writes what the format keeps beside the file, if it changed.
+// Callers hold saveMu.
+func (r *room) saveMeta(ctx context.Context, doc *ot.Tree) error {
+	f, ok := r.file.(MetaFile)
+	ms, hasStore := r.hub.store.(MetaStore)
+	if !ok || !hasStore {
+		return nil
+	}
+	meta, err := f.EncodeMeta(doc)
+	if err != nil || bytes.Equal(meta, r.meta) {
+		return err
+	}
+	if err := ms.SaveMeta(ctx, r.key, meta); err != nil {
+		return err
+	}
+	r.meta = meta
+	return nil
+}
+
 // flush saves the document if it changed since the last save, and tells
 // every peer how it went.
 func (r *room) flush(ctx context.Context) error {
@@ -347,6 +393,9 @@ func (r *room) flush(ctx context.Context) error {
 	data, err := r.file.Encode(doc)
 	if err == nil {
 		err = r.hub.store.Save(ctx, r.key, data)
+	}
+	if err == nil {
+		err = r.saveMeta(ctx, doc)
 	}
 
 	r.mu.Lock()

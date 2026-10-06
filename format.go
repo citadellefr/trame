@@ -21,3 +21,12 @@ type File interface {
 type Follower interface {
 	Follow(doc *ot.Tree, e ot.Edit, since []ot.Edit, by Peer) ot.Edit
 }
+
+// MetaFile is a File that keeps something beside the file, when the Store
+// is a MetaStore: the comments of a note, who wrote what. ReadMeta is called
+// once as the document opens, with what the store has kept (nil when it has
+// nothing), and changes doc; EncodeMeta is called at every save.
+type MetaFile interface {
+	ReadMeta(doc *ot.Tree, meta []byte) error
+	EncodeMeta(doc *ot.Tree) ([]byte, error)
+}

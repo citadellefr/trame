@@ -421,3 +421,44 @@ func TestFollowerKnowsTheAuthor(t *testing.T) {
 		t.Fatalf("saved %q", got)
 	}
 }
+
+// stamped is a text file that keeps beside it how many times it was saved.
+type stamped struct {
+	File
+	read  []byte
+	saves int
+}
+
+func (s *stamped) ReadMeta(_ *ot.Tree, meta []byte) error {
+	s.read = meta
+	return nil
+}
+
+func (s *stamped) EncodeMeta(*ot.Tree) ([]byte, error) {
+	s.saves++
+	return []byte(strconv.Itoa(s.saves)), nil
+}
+
+func TestMetaIsReadAndSavedBesideTheFile(t *testing.T) {
+	store := trametest.NewStore()
+	store.Data["a.txt"] = []byte("one")
+	store.Meta["a.txt"] = []byte("kept")
+	var file *stamped
+	h := NewHub(store, func(key string, data []byte) (*ot.Tree, File, error) {
+		doc, f, err := Text(key, data)
+		file = &stamped{File: f}
+		return doc, file, err
+	}, fastOptions())
+
+	alice, _, _ := join(t, h, "a.txt", Peer{ID: "1", Name: "Alice", Client: "ca"})
+	if string(file.read) != "kept" {
+		t.Fatalf("meta read %q", file.read)
+	}
+	alice.Send(`{"t":"op","n":1,"v":0,"d":[{"o":"txt","id":"body","x":[{"i":"X"}]}]}`)
+	alice.Expect("ack")
+	<-store.Saves
+	alice.Expect("saved")
+	if got := string(store.Meta["a.txt"]); got != "1" {
+		t.Fatalf("meta saved %q", got)
+	}
+}

@@ -38,6 +38,14 @@ type Store interface {
 	Save(ctx context.Context, key string, data []byte) error
 }
 
+// MetaStore is a Store that also keeps what a MetaFile holds beside its
+// file. A file without any reads as nil.
+type MetaStore interface {
+	Store
+	LoadMeta(ctx context.Context, key string) ([]byte, error)
+	SaveMeta(ctx context.Context, key string, meta []byte) error
+}
+
 // Peer describes the person behind a connection.
 type Peer struct {
 	ID   string

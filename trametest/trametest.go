@@ -85,10 +85,12 @@ func (c *Conn) CloseFrame() (int, string) {
 	return c.closeCode, c.closeReason
 }
 
-// Store keeps files in memory. A file never saved reads as empty. The key of
-// every save, failed or not, goes to Saves.
+// Store keeps files in memory, and what the formats keep beside them. A file
+// never saved reads as empty. The key of every save, failed or not, goes to
+// Saves.
 type Store struct {
 	Data  map[string][]byte
+	Meta  map[string][]byte
 	Saves chan string
 
 	mu   sync.Mutex
@@ -96,7 +98,7 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	return &Store{Data: map[string][]byte{}, Saves: make(chan string, 64)}
+	return &Store{Data: map[string][]byte{}, Meta: map[string][]byte{}, Saves: make(chan string, 64)}
 }
 
 func (s *Store) Load(_ context.Context, key string) ([]byte, error) {
@@ -117,6 +119,21 @@ func (s *Store) Save(_ context.Context, key string, data []byte) error {
 	s.mu.Unlock()
 	s.Saves <- key
 	return err
+}
+
+func (s *Store) LoadMeta(_ context.Context, key string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Meta[key], s.fail
+}
+
+func (s *Store) SaveMeta(_ context.Context, key string, meta []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fail == nil {
+		s.Meta[key] = meta
+	}
+	return s.fail
 }
 
 // Fail makes every load and save fail with err, until Fail(nil).
