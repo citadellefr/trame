@@ -200,12 +200,9 @@ void main() {
     b.share({'d': null});
     await Future<void>.delayed(const Duration(milliseconds: 60));
     await hub.settle();
-    expect(told, [
-      (
-        a.peers.single.sid,
-        {'c': [3, 4], 'd': null},
-      ),
-    ]);
+    expect(told, hasLength(1));
+    expect(told.single.$1, a.peers.single.sid);
+    expect(told.single.$2, {'c': [3, 4], 'd': null});
 
     // a selection travels beside it, in the same frame
     told.clear();

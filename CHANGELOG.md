@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Dart: `DocSession.share` shows the others something of this person beside
+  its selection — a pointer, a stroke being drawn — and `onShared` tells what
+  a peer shares, as presence frames carry it. The hub already relayed them
+  as they are.
 - `MetaStore` and `MetaFile`: a format can keep something beside its file
   (the comments of a note) in a store that has room for it.
 - Dart: `DocSession(drafts:)` keeps what the hub has not confirmed (the
