@@ -181,7 +181,13 @@ class DocPeer {
 /// next ones wait behind it, offline included, and all of them are rebased
 /// over the edits of others as those arrive.
 class DocSession extends ChangeNotifier {
-  DocSession(this._connect, {String? clientId, this.drafts, this.draftDelay = const Duration(seconds: 2)}) : _clientId = clientId ?? randomId();
+  DocSession(
+    this._connect, {
+    String? clientId,
+    this.drafts,
+    this.draftDelay = const Duration(seconds: 2),
+    this.othersPrevail = false,
+  }) : _clientId = clientId ?? randomId();
 
   static const _historyLimit = 500;
   static const _typingPause = Duration(milliseconds: 800);
@@ -193,6 +199,12 @@ class DocSession extends ChangeNotifier {
 
   /// Where what the hub has not confirmed is kept, if anywhere.
   final DocDrafts? drafts;
+
+  /// Whether what others did since stands against an undo or a redo that
+  /// would overwrite it: an attribute they changed keeps their value. By
+  /// default the undo is the later edit and wins, as typing over a selection
+  /// does.
+  final bool othersPrevail;
 
   /// How long unconfirmed edits wait before the draft is written, which
   /// then follows at the same pace.
@@ -550,8 +562,8 @@ class DocSession extends ChangeNotifier {
       var c = change;
       for (var i = stack.length - 1; i >= 0; i--) {
         final entry = stack[i];
-        stack[i] = c.transform(entry, thisFirst: true);
-        c = entry.transform(c, thisFirst: false);
+        stack[i] = c.transform(entry, thisFirst: !othersPrevail);
+        c = entry.transform(c, thisFirst: othersPrevail);
       }
     }
     _lastTyping = null;

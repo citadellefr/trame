@@ -9,6 +9,9 @@
   a peer shares, as presence frames carry it. The hub already relayed them
   as they are. `share(now: true)` sends at once; `DocSession.authored` tells
   who made the edits of others.
+- Dart: `DocSession(othersPrevail: true)` lets what others changed since stand
+  against an undo or a redo that would overwrite it, for documents whose
+  edits replace attributes rather than text.
 - `MetaStore` and `MetaFile`: a format can keep something beside its file
   (the comments of a note) in a store that has room for it.
 - Dart: `DocSession(drafts:)` keeps what the hub has not confirmed (the

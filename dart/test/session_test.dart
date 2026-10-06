@@ -191,6 +191,30 @@ void main() {
     expect(s.text, '');
   });
 
+  test('an undo overwrites what others changed since, unless theirs prevail', () async {
+    final shape = Node(id: 's', type: 'e', key: 'V', attributes: const {'x': 0, 'y': 0});
+    for (final prevail in [false, true]) {
+      hub = FakeHub.tree(Edit([Change.create(shape)]));
+      final mine = DocSession(hub.connect, clientId: 'mine', othersPrevail: prevail)..start();
+      final theirs = DocSession(hub.connect, clientId: 'theirs')..start();
+      addTearDown(mine.dispose);
+      addTearDown(theirs.dispose);
+      await pumpEventQueue();
+      await hub.settle();
+
+      mine.edit(Edit([const Change.set('s', attributes: {'x': 1, 'y': 1})]));
+      await hub.settle();
+      theirs.edit(Edit([const Change.set('s', attributes: {'x': 99})]));
+      await hub.settle();
+      mine.undo();
+      await hub.settle();
+
+      expect(mine.document['s']!.attributes['x'], prevail ? 99 : 0);
+      expect(mine.document['s']!.attributes['y'], 0);
+      expect(hub.doc['s']!.attributes, mine.document['s']!.attributes);
+    }
+  });
+
   test('shares what is not a selection, told as it arrived', () async {
     final a = await open();
     final b = await open();
