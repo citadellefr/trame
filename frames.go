@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"strconv"
+
+	"github.com/citadellefr/trame/ot"
 )
 
 const (
@@ -29,6 +31,17 @@ type inbound struct {
 	V     uint64          `json:"v"`
 	Epoch string          `json:"epoch"`
 	D     json.RawMessage `json:"d"`
+
+	// edit is D read as an edit, bad when it is not one: done before the
+	// room is locked, which it does not need.
+	edit ot.Edit
+	bad  bool
+}
+
+func (in *inbound) decodeEdit() {
+	if json.Unmarshal(in.D, &in.edit) != nil || in.edit.Check() != nil {
+		in.edit, in.bad = nil, true
+	}
 }
 
 var presencePrefix = []byte(`{"t":"eph","d":`)

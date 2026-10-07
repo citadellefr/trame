@@ -189,6 +189,7 @@ func (r *room) handle(p *peer, msg []byte) {
 	case "sync":
 		r.sync(p, &in)
 	case "op":
+		in.decodeEdit()
 		r.apply(p, &in)
 	case "eph":
 		r.relayPresence(p, in.D)
@@ -298,10 +299,10 @@ func (r *room) rebase(p *peer, in *inbound) (ot.Edit, []ot.Edit, error) {
 	if p.info.ReadOnly {
 		return nil, nil, errReadOnly
 	}
-	var e ot.Edit
-	if json.Unmarshal(in.D, &e) != nil || e.Check() != nil {
+	if in.bad {
 		return nil, nil, errMalformed
 	}
+	e := in.edit
 	if err := r.file.Check(r.doc, e, p.info); err != nil {
 		return nil, nil, err
 	}
