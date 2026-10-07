@@ -240,26 +240,55 @@ func (t *Tree) Apply(e Edit) error {
 	if len(e) == 1 {
 		return t.apply(e[0], nil)
 	}
-	var undo []*Node
-	var ids []string
-	log := func(id string) {
-		ids = append(ids, id)
-		undo = append(undo, t.nodes[id])
-	}
+	var j journal
 	for _, c := range e {
-		if err := t.apply(c, log); err != nil {
-			for i := len(ids) - 1; i >= 0; i-- {
-				t.put(ids[i], undo[i])
-			}
+		if err := t.apply(c, &j); err != nil {
+			j.revert(t)
 			return err
 		}
 	}
 	return nil
 }
 
-// apply makes one change; log, when set, is told of every node about to
-// be replaced so that it can be put back.
-func (t *Tree) apply(c Change, log func(id string)) error {
+// A journal is what a tree needs to take the changes of an edit back: the
+// nodes replaced, and the paragraphs of the text changed in place.
+type journal []entry
+
+type entry struct {
+	id   string
+	node *Node // put back as id, when text is nil
+	text *Doc
+	undo undo
+}
+
+// replaced is told that the node id is about to be replaced. A nil journal
+// remembers nothing.
+func (j *journal) replaced(t *Tree, id string) {
+	if j != nil {
+		*j = append(*j, entry{id: id, node: t.nodes[id]})
+	}
+}
+
+func (j *journal) edited(text *Doc, u undo) {
+	if j != nil {
+		*j = append(*j, entry{text: text, undo: u})
+	}
+}
+
+func (j journal) revert(t *Tree) {
+	for i := len(j) - 1; i >= 0; i-- {
+		if e := j[i]; e.text != nil {
+			e.text.revert(e.undo)
+			t.size -= e.undo.grew
+		} else {
+			t.put(e.id, e.node)
+		}
+	}
+}
+
+// apply makes one change; j, when set, is told of what it changes so that
+// it can be put back.
+func (t *Tree) apply(c Change, j *journal) error {
 	n := t.nodes[c.ID]
 	if c.Op == OpNew {
 		if n != nil {
@@ -283,9 +312,7 @@ func (t *Tree) apply(c Change, log func(id string)) error {
 			}
 			n.Grid = g
 		}
-		if log != nil {
-			log(c.ID)
-		}
+		j.replaced(t, c.ID)
 		t.put(c.ID, n)
 		return nil
 	}
@@ -299,9 +326,7 @@ func (t *Tree) apply(c Change, log func(id string)) error {
 			ids = append(ids, t.kids[ids[i]]...)
 		}
 		for i := len(ids) - 1; i >= 0; i-- {
-			if log != nil {
-				log(ids[i])
-			}
+			j.replaced(t, ids[i])
 			t.put(ids[i], nil)
 		}
 	case OpSet:
@@ -312,39 +337,28 @@ func (t *Tree) apply(c Change, log func(id string)) error {
 		if len(c.Attrs) > 0 {
 			m.Attrs = setValues(n.Attrs, c.Attrs)
 		}
-		if log != nil {
-			log(c.ID)
-		}
+		j.replaced(t, c.ID)
 		t.put(c.ID, &m)
 	case OpTxt:
 		if n.Text == nil {
 			return ErrInvalid
 		}
-		if log == nil {
-			size := n.Text.Len()
-			if err := n.Text.Apply(c.Text); err != nil {
-				return err
-			}
-			t.size += n.Text.Len() - size
-			return nil
-		}
-		m := *n
-		m.Text = n.Text.Clone()
-		if err := m.Text.Apply(c.Text); err != nil {
+		u, err := n.Text.apply(c.Text, j != nil)
+		if err != nil {
 			return err
 		}
-		log(c.ID)
-		t.put(c.ID, &m)
+		j.edited(n.Text, u)
+		t.size += u.grew
 	case OpCel, OpIns, OpRem:
 		if n.Grid == nil {
 			return ErrInvalid
 		}
 		g := n.Grid
-		if log != nil {
+		if j != nil {
 			m := *n
 			m.Grid = n.Grid.Clone()
 			g = m.Grid
-			log(c.ID)
+			j.replaced(t, c.ID)
 			t.put(c.ID, &m)
 		}
 		size := g.Len()

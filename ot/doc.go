@@ -2,6 +2,7 @@ package ot
 
 import (
 	"errors"
+	"slices"
 	"strings"
 )
 
@@ -123,18 +124,37 @@ func flowOf(paras []para) Delta {
 	return out
 }
 
+// undo is what it takes to put back the paragraphs an edit replaced.
+type undo struct {
+	first int
+	old   []para
+	count int // of paragraphs that replaced them
+	grew  int
+}
+
+func (d *Doc) revert(u undo) {
+	d.paras = slices.Replace(d.paras, u.first, u.first+u.count, u.old...)
+	d.size -= u.grew
+}
+
 // Apply edits the document, or leaves it as it was and returns why the delta
 // does not apply to it.
 func (d *Doc) Apply(delta Delta) error {
+	_, err := d.apply(delta, false)
+	return err
+}
+
+// apply is Apply that tells how to take the edit back, when keep is set.
+func (d *Doc) apply(delta Delta, keep bool) (undo, error) {
 	if delta.BaseLen() > d.size {
-		return ErrLength
+		return undo{}, ErrLength
 	}
 	if deletesLast(delta, d.size) {
-		return ErrNoMark
+		return undo{}, ErrNoMark
 	}
 	delta = delta.chop()
 	if len(delta) == 0 {
-		return nil
+		return undo{}, nil
 	}
 	start := 0
 	if delta[0].Retain > 0 && delta[0].Attrs == nil {
@@ -167,25 +187,30 @@ func (d *Doc) Apply(delta Delta) error {
 	}
 	edited, err := Compose(region, local)
 	if err != nil {
-		return err
+		return undo{}, err
 	}
 	paras, err := paragraphs(edited, size+local.Change())
 	if err != nil {
-		return err
+		return undo{}, err
 	}
 	if paras == nil && first == 0 {
-		return ErrNoMark
+		return undo{}, ErrNoMark
+	}
+	u := undo{first: first, count: len(paras)}
+	if keep {
+		u.old = slices.Clone(d.paras[first : last+1])
 	}
 	if len(paras) == last+1-first {
 		copy(d.paras[first:], paras)
 	} else {
-		d.paras = append(d.paras[:first], append(paras, d.paras[last+1:]...)...)
+		d.paras = slices.Replace(d.paras, first, last+1, paras...)
 	}
 	for _, p := range paras {
 		size -= p.size
 	}
+	u.grew = -size
 	d.size -= size
-	return nil
+	return u, nil
 }
 
 // deletesLast tells whether delta deletes the last unit of a flow of size
