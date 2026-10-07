@@ -53,6 +53,7 @@ func (textFile) Check(_ *ot.Tree, e ot.Edit, _ Peer) error {
 
 func (f textFile) Encode(doc *ot.Tree) ([]byte, error) {
 	var b bytes.Buffer
+	b.Grow(doc.Len() + len(bom))
 	if f.bom {
 		b.Write(bom)
 	}

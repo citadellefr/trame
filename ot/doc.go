@@ -91,28 +91,35 @@ func (d *Doc) Delta() Delta {
 }
 
 // flowOf joins paragraphs into one flow, runs of equal attributes as one
-// insert. The text of a run is built once: joining it paragraph by paragraph
-// would copy it as many times.
+// insert. The text is built once, whatever the number of runs: joining it
+// paragraph by paragraph would copy it as many times.
 func flowOf(paras []para) Delta {
-	var out Delta
-	var run strings.Builder
-	var attrs Attrs
-	end := func() {
-		if run.Len() > 0 {
-			out = append(out, Op{Insert: run.String(), Attrs: attrs})
-			run = strings.Builder{}
-		}
-	}
+	n := 0
 	for _, p := range paras {
 		for _, o := range p.flow {
-			if !sameAttrs(o.Attrs, attrs) {
-				end()
-				attrs = o.Attrs
-			}
-			run.WriteString(o.Insert)
+			n += len(o.Insert)
 		}
 	}
-	end()
+	var text strings.Builder
+	text.Grow(n)
+	var out Delta
+	var ends []int
+	for _, p := range paras {
+		for _, o := range p.flow {
+			if len(out) == 0 || !sameAttrs(o.Attrs, out[len(out)-1].Attrs) {
+				out = append(out, Op{Attrs: o.Attrs})
+				ends = append(ends, 0)
+			}
+			text.WriteString(o.Insert)
+			ends[len(ends)-1] = text.Len()
+		}
+	}
+	all := text.String()
+	start := 0
+	for i, end := range ends {
+		out[i].Insert = all[start:end]
+		start = end
+	}
 	return out
 }
 

@@ -34,6 +34,9 @@ type room struct {
 	// epoch names this stay in memory: revisions count from its start.
 	epoch   string
 	history []edit
+	// nodes is the document as the nodes that create it, kept until the next
+	// edit for the clients that connect together.
+	nodes   []byte
 	peers   map[uint32]*peer
 	nextSID uint32
 	acks    map[string]uint64
@@ -212,8 +215,10 @@ func (r *room) sync(p *peer, in *inbound) {
 	p.synced = true
 	first := r.version - uint64(len(r.history))
 	if in.Epoch != r.epoch || in.V < first || in.V > r.version {
-		nodes, _ := json.Marshal(r.doc.Edit())
-		p.send(docFrame(r.version, r.acks[p.info.Client], nodes))
+		if r.nodes == nil {
+			r.nodes, _ = json.Marshal(r.doc.Edit())
+		}
+		p.send(docFrame(r.version, r.acks[p.info.Client], r.nodes))
 		return
 	}
 	for i, e := range r.history[in.V-first:] {
@@ -278,6 +283,7 @@ func (r *room) record(e ot.Edit, p *peer, client string, n uint64) {
 		r.history = slices.Clone(r.history[len(r.history)-r.hub.opt.History/2:])
 	}
 	r.version++
+	r.nodes = nil
 	frame := opFrame(sid, r.version, raw)
 	for _, q := range r.peers {
 		if q != p && q.synced {

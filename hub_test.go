@@ -77,6 +77,22 @@ func TestEditsAreRebasedAndSaved(t *testing.T) {
 	alice.Expect("leave")
 }
 
+func TestWholeDocumentFollowsEdits(t *testing.T) {
+	h := NewHub(trametest.NewStore(), Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})
+	alice, _, first := join(t, h, "a.txt", Peer{ID: "1", Client: "ca"})
+	_, _, second := join(t, h, "a.txt", Peer{ID: "2"})
+	alice.Expect("join")
+	if string(second.D) != string(first.D) {
+		t.Fatalf("doc = %s, want %s", second.D, first.D)
+	}
+	alice.Send(`{"t":"op","n":1,"v":0,"d":[{"o":"txt","id":"body","x":[{"i":"X"}]}]}`)
+	alice.Expect("ack")
+	_, _, third := join(t, h, "a.txt", Peer{ID: "3"})
+	if third.V != 1 || string(third.D) != `[{"o":"new","id":"body","t":"text","k":"V","x":[{"i":"X\n"}]}]` {
+		t.Fatalf("doc = %+v %s", third, third.D)
+	}
+}
+
 func TestReconnectCatchesUp(t *testing.T) {
 	h := NewHub(trametest.NewStore(), Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})
 	keeper, hello, _ := join(t, h, "a.txt", Peer{ID: "0"})
