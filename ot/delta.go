@@ -128,7 +128,7 @@ func (d Delta) chop() Delta {
 // Compose is the delta that does a then b.
 func Compose(a, b Delta) (Delta, error) {
 	x, y := iterate(a), iterate(b)
-	var out Delta
+	out := make(Delta, 0, len(a)+len(b))
 	for x.more() || y.more() {
 		if y.kind() == kindInsert {
 			out = out.Push(y.next(infinite))
@@ -162,7 +162,7 @@ func Compose(a, b Delta) (Delta, error) {
 // the same attribute, the one ordered second wins.
 func Transform(a, b Delta, aFirst bool) Delta {
 	x, y := iterate(a), iterate(b)
-	var out Delta
+	out := make(Delta, 0, len(a)+len(b))
 	for x.more() || y.more() {
 		if x.kind() == kindInsert && (aFirst || y.kind() != kindInsert) {
 			out = out.Push(Op{Retain: x.next(infinite).Len()})
@@ -211,7 +211,13 @@ func sameAttrs(a, b Attrs) bool {
 }
 
 func composeAttrs(a, b Attrs, keepRemovals bool) Attrs {
-	out := Attrs{}
+	if len(b) == 0 {
+		if len(a) == 0 {
+			return nil
+		}
+		return a
+	}
+	out := make(Attrs, len(a)+len(b))
 	for k, v := range b {
 		if v != "" || keepRemovals {
 			out[k] = v

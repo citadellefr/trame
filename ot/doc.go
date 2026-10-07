@@ -181,7 +181,7 @@ func (d *Doc) apply(delta Delta, keep bool) (undo, error) {
 		size += p.size
 	}
 	region := flowOf(d.paras[first : last+1])
-	local := Delta{}.Push(Op{Retain: start - offset})
+	local := make(Delta, 0, len(delta)+1).Push(Op{Retain: start - offset})
 	for _, o := range delta {
 		local = local.Push(o)
 	}
