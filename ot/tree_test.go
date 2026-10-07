@@ -81,6 +81,11 @@ func TestTreeApply(t *testing.T) {
 			{Op: OpTxt, ID: "a", Text: Delta{ret(1), del(2)}},
 			{Op: OpTxt, ID: "a", Text: Delta{ret(50)}},
 		}, ErrLength},
+		{Edit{
+			{Op: OpTxt, ID: "a", Text: Delta{ret(1), ins("q")}},
+			{Op: OpTxt, ID: "a", Text: Delta{ret(1), del(1)}},
+			{Op: OpTxt, ID: "a", Text: Delta{ret(50)}},
+		}, ErrLength},
 	} {
 		if err := tree.Apply(c.e); err != c.want {
 			t.Errorf("Apply(%v) = %v, want %v", c.e, err, c.want)

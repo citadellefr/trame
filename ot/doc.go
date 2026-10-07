@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"unsafe"
 )
 
 var (
@@ -156,6 +157,9 @@ func (d *Doc) apply(delta Delta, keep bool) (undo, error) {
 	if len(delta) == 0 {
 		return undo{}, nil
 	}
+	if u, ok := d.splice(delta, keep); ok {
+		return u, nil
+	}
 	start := 0
 	if delta[0].Retain > 0 && delta[0].Attrs == nil {
 		start = delta[0].Retain
@@ -211,6 +215,74 @@ func (d *Doc) apply(delta Delta, keep bool) (undo, error) {
 	u.grew = -size
 	d.size -= size
 	return u, nil
+}
+
+// splice applies the edit most keystrokes are: text typed or deleted inside
+// one run of one paragraph, leaving its mark and its formatting alone. The
+// paragraph is then changed by a single copy of the run rather than rebuilt
+// through Compose. It tells false when the delta is anything else.
+func (d *Doc) splice(delta Delta, keep bool) (undo, bool) {
+	var start, del int
+	var insert string
+	var attrs Attrs
+	ops := delta
+	if ops[0].Retain > 0 && ops[0].Attrs == nil {
+		start, ops = ops[0].Retain, ops[1:]
+	}
+	if len(ops) > 0 && ops[0].Insert != "" {
+		insert, attrs, ops = ops[0].Insert, ops[0].Attrs, ops[1:]
+	}
+	if len(ops) > 0 && ops[0].Delete > 0 {
+		del, ops = ops[0].Delete, ops[1:]
+	}
+	if len(ops) > 0 || insert == "" && del == 0 || strings.IndexByte(insert, '\n') >= 0 {
+		return undo{}, false
+	}
+
+	i, offset := 0, 0
+	for i < len(d.paras)-1 && offset+d.paras[i].size <= start {
+		offset += d.paras[i].size
+		i++
+	}
+	p := d.paras[i]
+	at := start - offset
+	if at+del >= p.size {
+		return undo{}, false
+	}
+	j, from := 0, 0
+	for j < len(p.flow)-1 {
+		n := utf16Len(p.flow[j].Insert)
+		if at < from+n {
+			break
+		}
+		from += n
+		j++
+	}
+	run := p.flow[j]
+	if !sameAttrs(attrs, run.Attrs) || j < len(p.flow)-1 && at+del > from+utf16Len(run.Insert) {
+		return undo{}, false
+	}
+	b0, ok := utf16Advance(run.Insert, 0, at-from)
+	if !ok {
+		return undo{}, false
+	}
+	b1, ok := utf16Advance(run.Insert, b0, del)
+	if !ok || len(run.Insert)-(b1-b0)+len(insert) == 0 {
+		return undo{}, false
+	}
+	text := make([]byte, 0, len(run.Insert)-(b1-b0)+len(insert))
+	text = append(append(append(text, run.Insert[:b0]...), insert...), run.Insert[b1:]...)
+
+	grew := utf16Len(insert) - del
+	u := undo{first: i, count: 1, grew: grew}
+	if keep {
+		u.old = []para{p}
+	}
+	flow := slices.Clone(p.flow)
+	flow[j].Insert = unsafe.String(unsafe.SliceData(text), len(text))
+	d.paras[i] = para{flow: flow, size: p.size + grew}
+	d.size += grew
+	return u, true
 }
 
 // deletesLast tells whether delta deletes the last unit of a flow of size

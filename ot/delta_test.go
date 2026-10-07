@@ -381,3 +381,74 @@ func TestUTF16Lengths(t *testing.T) {
 		}
 	}
 }
+
+// TestDocSplice checks that a keystroke applied in place gives the document
+// that composing it with the whole flow does, in text of several paragraphs
+// and runs, and the same refusals.
+func TestDocSplice(t *testing.T) {
+	rng := rand.New(rand.NewPCG(7, 11))
+	letters := []string{"a", "b", "é", "😀", "\n", "xy", "日本"}
+	text := func(n int) string {
+		var b strings.Builder
+		for range n {
+			b.WriteString(letters[rng.IntN(len(letters))])
+		}
+		return b.String()
+	}
+	for range 3000 {
+		flow := Delta{}
+		for range 1 + rng.IntN(4) {
+			var attrs Attrs
+			if rng.IntN(2) == 0 {
+				attrs = Attrs{"b": "1"}
+			}
+			flow = flow.Push(Op{Insert: text(1 + rng.IntN(8)), Attrs: attrs})
+		}
+		flow = flow.Push(Op{Insert: "\n"})
+		doc, err := NewDoc(flow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		size := doc.Len()
+		var edit Delta
+		edit = edit.Push(Op{Retain: rng.IntN(size + 1)})
+		if rng.IntN(3) > 0 {
+			var attrs Attrs
+			if rng.IntN(3) == 0 {
+				attrs = Attrs{"b": "1"}
+			}
+			edit = edit.Push(Op{Insert: text(1 + rng.IntN(3)), Attrs: attrs})
+		}
+		if rng.IntN(2) == 0 {
+			edit = edit.Push(Op{Delete: 1 + rng.IntN(5)})
+		}
+
+		want, werr := Compose(doc.Delta(), edit.chop())
+		if werr == nil && edit.BaseLen() > size {
+			werr = ErrLength
+		}
+		if werr == nil && deletesLast(edit, size) {
+			werr = ErrNoMark
+		}
+		var wantDoc *Doc
+		if werr == nil {
+			if wantDoc, werr = NewDoc(want); werr != nil {
+				wantDoc = nil
+			}
+		}
+		before := doc.Delta()
+		err = doc.Apply(edit)
+		if (err == nil) != (werr == nil) {
+			t.Fatalf("%v on %v: got %v, want %v", edit, flow, err, werr)
+		}
+		if err != nil {
+			if !reflect.DeepEqual(doc.Delta(), before) {
+				t.Fatalf("%v on %v: refused but changed", edit, flow)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(doc.Delta(), wantDoc.Delta()) || doc.Len() != wantDoc.Len() || !reflect.DeepEqual(doc.paras, wantDoc.paras) {
+			t.Fatalf("%v on %v:\n got %v\nwant %v", edit, flow, doc.Delta(), wantDoc.Delta())
+		}
+	}
+}
