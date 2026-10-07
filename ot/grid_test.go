@@ -282,3 +282,50 @@ func FuzzScanFields(f *testing.F) {
 		}
 	})
 }
+
+// BenchmarkCellsDecode measures a paste of 5000 cells as they arrive.
+func BenchmarkCellsDecode(b *testing.B) {
+	var cells []Cell
+	for r := 1; r <= 100; r++ {
+		for c := 1; c <= 50; c++ {
+			cells = append(cells, Cell{Row: r, Col: c, Fields: json.RawMessage(`{"v":"12.5"}`)})
+		}
+	}
+	data, err := json.Marshal(cells)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		var out []Cell
+		if err := json.Unmarshal(data, &out); err != nil || len(out) != len(cells) {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestCellDecode(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want Cell
+		ok   bool
+	}{
+		{`[1,2,{"a":1}]`, Cell{1, 2, json.RawMessage(`{"a":1}`)}, true},
+		{` [ 3 , 4 , {"a": [1, 2]} ] `, Cell{3, 4, json.RawMessage(`{"a": [1, 2]}`)}, true},
+		{`[0,0,null]`, Cell{0, 0, json.RawMessage(`null`)}, true},
+		{`[1,2]`, Cell{}, false},
+		{`[1,2,{},3]`, Cell{}, false},
+		{`[1.5,2,{}]`, Cell{}, false},
+		{`[1,2e0,{}]`, Cell{}, false},
+		{`["1",2,{}]`, Cell{}, false},
+		{`[99999999999999999999,2,{}]`, Cell{}, false},
+		{`{"a":1}`, Cell{}, false},
+	} {
+		var got Cell
+		err := got.UnmarshalJSON([]byte(c.in))
+		if (err == nil) != c.ok || c.ok && !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: got %+v, %v", c.in, got, err)
+		}
+	}
+}

@@ -65,15 +65,48 @@ func (c Cell) MarshalJSON() ([]byte, error) {
 }
 
 func (c *Cell) UnmarshalJSON(data []byte) error {
-	var parts []json.RawMessage
-	if err := json.Unmarshal(data, &parts); err != nil {
-		return err
-	}
-	if len(parts) != 3 || json.Unmarshal(parts[0], &c.Row) != nil || json.Unmarshal(parts[1], &c.Col) != nil {
+	var blank bool
+	i := skipBlank(data, 0, &blank)
+	if i >= len(data) || data[i] != '[' {
 		return ErrInvalid
 	}
-	c.Fields = parts[2]
+	var ok bool
+	if c.Row, i, ok = scanIndex(data, i+1); !ok {
+		return ErrInvalid
+	}
+	if c.Col, i, ok = scanIndex(data, i); !ok {
+		return ErrInvalid
+	}
+	start := skipBlank(data, i, &blank)
+	end, ok := scanValue(data, start, 0, &blank)
+	if !ok {
+		return ErrInvalid
+	}
+	if i = skipBlank(data, end, &blank); i >= len(data) || data[i] != ']' || skipBlank(data, i+1, &blank) != len(data) {
+		return ErrInvalid
+	}
+	c.Fields = bytes.Clone(data[start:end])
 	return nil
+}
+
+// scanIndex reads an integer at i, then the comma after it, and returns it
+// with the offset after the comma.
+func scanIndex(data []byte, i int) (n, next int, ok bool) {
+	var blank bool
+	i = skipBlank(data, i, &blank)
+	end, ok := scanNumber(data, i)
+	if !ok {
+		return 0, 0, false
+	}
+	n64, err := strconv.ParseInt(string(data[i:end]), 10, 0)
+	if err != nil {
+		return 0, 0, false
+	}
+	i = skipBlank(data, end, &blank)
+	if i >= len(data) || data[i] != ',' {
+		return 0, 0, false
+	}
+	return int(n64), i + 1, true
 }
 
 // fields reads a cell's object; set allows the nulls that remove fields.
