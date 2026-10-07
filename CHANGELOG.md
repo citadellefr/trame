@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The hub does less per keystroke: an edit is read in one scan and decoded
+  before the room is locked, relayed as the client wrote it when nothing was
+  rebased, and typed or deleted inside one run of a paragraph it costs a
+  single copy of the run. A keystroke in a document of 200 pages went from
+  37 to 13 allocations and from about 40 to 7 microseconds.
+- Several clients connecting together share one encoding of the document,
+  which a save no longer builds with repeated growth: connecting went from
+  12 MB and 14 ms to 1 MB and 0.3 ms, saving from 2.2 MB to 1 MB. Reading a
+  paste of cells takes a quarter of the time.
+- `ot.DecodeEdit` reads an edit and tells whether it is as compact as it can
+  be written; `Edit` decodes through it.
 - A client connecting to a large document no longer waits for the hub to join
   its paragraphs one copy at a time: a document of 200 pages went from a
   second and a gigabyte of memory to a few milliseconds. Applying an edit
