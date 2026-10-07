@@ -93,6 +93,32 @@ func TestWholeDocumentFollowsEdits(t *testing.T) {
 	}
 }
 
+func TestEditFramesAreReadWhateverTheirForm(t *testing.T) {
+	h := NewHub(trametest.NewStore(), Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})
+	alice, _, _ := join(t, h, "a.txt", Peer{ID: "1"})
+	bob, _, _ := join(t, h, "a.txt", Peer{ID: "2"})
+	alice.Expect("join")
+	for i, c := range []struct{ frame, relayed string }{
+		{`{"t":"op","n":1,"v":0,"d":[{"o":"txt","id":"body","x":[{"i":"a"}]}]}`, `[{"o":"txt","id":"body","x":[{"i":"a"}]}]`},
+		{`{"v":1,"n":2,"t":"op","d":[{"o":"txt","id":"body","x":[{"i":"b"}]}]}`, `[{"o":"txt","id":"body","x":[{"i":"b"}]}]`},
+		{`{"t":"op","n":3,"v":2,"d":[{"o":"txt","id":"body","x":[{"i":"c"}]}],"extra":true}`, `[{"o":"txt","id":"body","x":[{"i":"c"}]}]`},
+		{`{"t":"op","n":4,"v":3,"d":[ { "o" : "txt", "id":"body", "x":[{"i":"<"}] } ]}`, `[{"o":"txt","id":"body","x":[{"i":"\u003c"}]}]`},
+		{`{"t":"op","n":5,"v":4,"d":[{"o":"txt","id":"body","x":[{"i":"\n"}]}]}`, `[{"o":"txt","id":"body","x":[{"i":"\n"}]}]`},
+	} {
+		alice.Send(c.frame)
+		if f := alice.Expect("ack"); f.N != uint64(i+1) || f.V != uint64(i+1) {
+			t.Fatalf("%s: ack = %+v", c.frame, f)
+		}
+		if f := bob.Expect("op"); string(f.D) != c.relayed {
+			t.Fatalf("%s: relayed %s, want %s", c.frame, f.D, c.relayed)
+		}
+	}
+	alice.Send(`{"t":"op","n":6,"v":5,"d":[{"o":"txt","id":"body","x":[{"r":1.5}]}]}`)
+	if f := alice.Expect("nack"); f.N != 6 {
+		t.Fatalf("nack = %+v", f)
+	}
+}
+
 func TestReconnectCatchesUp(t *testing.T) {
 	h := NewHub(trametest.NewStore(), Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})
 	keeper, hello, _ := join(t, h, "a.txt", Peer{ID: "0"})

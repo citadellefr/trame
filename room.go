@@ -179,17 +179,22 @@ func (r *room) handle(p *peer, msg []byte) {
 		return
 	}
 	var in inbound
-	if err := json.Unmarshal(msg, &in); err != nil {
-		if in.T == "op" {
-			p.send(messageFrame("nack", in.N, errMalformed.Error()))
+	if !in.readOp(msg) {
+		in = inbound{}
+		if err := json.Unmarshal(msg, &in); err != nil {
+			if in.T == "op" {
+				p.send(messageFrame("nack", in.N, errMalformed.Error()))
+			}
+			return
 		}
-		return
 	}
 	switch in.T {
 	case "sync":
 		r.sync(p, &in)
 	case "op":
-		in.decodeEdit()
+		if !in.read {
+			in.decodeEdit()
+		}
 		r.apply(p, &in)
 	case "eph":
 		r.relayPresence(p, in.D)
@@ -260,11 +265,15 @@ func (r *room) apply(p *peer, in *inbound) {
 	if client != "" {
 		r.acks[client] = in.N
 	}
-	r.record(e, p, client, in.N)
+	var raw []byte
+	if len(since) == 0 && in.exact {
+		raw = bytes.Clone(in.D)
+	}
+	r.record(e, raw, p, client, in.N)
 	p.send(ackFrame(in.N, r.version))
 	if f, ok := r.file.(Follower); ok {
 		if more := f.Follow(r.doc, e, since, p.info); len(more) > 0 {
-			r.record(more, nil, "", 0)
+			r.record(more, nil, nil, "", 0)
 		}
 	}
 	r.requestSave()
@@ -272,9 +281,11 @@ func (r *room) apply(p *peer, in *inbound) {
 
 // record adds an applied edit to the history, as the next revision, and
 // hands it to every peer but its author, which the server is when p is
-// nil. Callers hold r.mu.
-func (r *room) record(e ot.Edit, p *peer, client string, n uint64) {
-	raw, _ := json.Marshal(e)
+// nil. raw is the edit written as JSON, if it already is. Callers hold r.mu.
+func (r *room) record(e ot.Edit, raw []byte, p *peer, client string, n uint64) {
+	if raw == nil {
+		raw, _ = json.Marshal(e)
+	}
 	var sid uint32
 	if p != nil {
 		sid = p.sid

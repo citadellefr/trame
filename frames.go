@@ -33,15 +33,62 @@ type inbound struct {
 	D     json.RawMessage `json:"d"`
 
 	// edit is D read as an edit, bad when it is not one: done before the
-	// room is locked, which it does not need.
-	edit ot.Edit
-	bad  bool
+	// room is locked, which it does not need. exact tells whether D is as
+	// compact as the edit can be written.
+	edit  ot.Edit
+	bad   bool
+	exact bool
+	read  bool
 }
 
 func (in *inbound) decodeEdit() {
-	if json.Unmarshal(in.D, &in.edit) != nil || in.edit.Check() != nil {
-		in.edit, in.bad = nil, true
+	var err error
+	in.edit, in.exact, err = ot.DecodeEdit(in.D)
+	in.bad, in.read = err != nil || in.edit.Check() != nil, true
+	if in.bad {
+		in.edit, in.exact = nil, false
 	}
+}
+
+var opPrefix = []byte(`{"t":"op","n":`)
+
+// readOp reads an edit frame written the way the Flutter client writes it,
+// without decoding the envelope. When the frame is anything else, or its
+// edit is not one, it is left to json.Unmarshal.
+func (in *inbound) readOp(msg []byte) bool {
+	rest, ok := bytes.CutPrefix(msg, opPrefix)
+	if !ok {
+		return false
+	}
+	n, rest, ok := cutUint(rest, `,"v":`)
+	if !ok {
+		return false
+	}
+	v, rest, ok := cutUint(rest, `,"d":`)
+	if !ok {
+		return false
+	}
+	d, ok := bytes.CutSuffix(rest, []byte{'}'})
+	if !ok {
+		return false
+	}
+	*in = inbound{T: "op", N: n, V: v, D: d}
+	in.decodeEdit()
+	return !in.bad
+}
+
+// cutUint reads digits, then the separator that must follow them.
+func cutUint(b []byte, sep string) (n uint64, rest []byte, ok bool) {
+	i := 0
+	for i < len(b) && '0' <= b[i] && b[i] <= '9' {
+		n = n*10 + uint64(b[i]-'0')
+		i++
+	}
+	if i == 0 || i > 18 || i > 1 && b[0] == '0' {
+		return 0, nil, false
+	}
+	rest, ok = bytes.CutPrefix(b[i:], []byte(sep))
+	return n, rest, ok
 }
 
 var presencePrefix = []byte(`{"t":"eph","d":`)
