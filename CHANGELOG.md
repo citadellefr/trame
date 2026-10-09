@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-09
 
 - The hub does less per keystroke: an edit is read in one scan and decoded
   before the room is locked, relayed as the client wrote it when nothing was
