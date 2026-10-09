@@ -2,6 +2,7 @@ package trame
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,6 +15,11 @@ const (
 	// compressFrom is the smallest frame worth compressing, when the
 	// connection negotiated it: the document sent on connection, long pastes.
 	compressFrom = 4 << 10
+
+	// writeEvery spaces the writes to a client that reads batches: what is
+	// queued meanwhile leaves as one message, of batchBytes or little more.
+	writeEvery = 20 * time.Millisecond
+	batchBytes = 64 << 10
 )
 
 // compressor is implemented by the Conn of gorilla/websocket and
@@ -29,6 +35,8 @@ type peer struct {
 	// synced is set, under the room's lock, once the peer has the document:
 	// edits are sent to it from then on.
 	synced bool
+	// batch tells that the client reads several frames in one message.
+	batch atomic.Bool
 
 	out      chan []byte
 	done     chan struct{}
@@ -83,13 +91,26 @@ func (p *peer) writeLoop() {
 	ping := time.NewTicker(pingInterval)
 	defer ping.Stop()
 	compress, _ := p.conn.(compressor)
+	// out is nil while a batch fills: the first frame after a quiet time
+	// leaves at once, the next ones together when pace fires.
+	out := p.out
+	pace := time.NewTimer(writeEvery)
+	defer pace.Stop()
 	for {
 		select {
-		case frame := <-p.out:
-			if !p.write(compress, frame) {
+		case frame := <-out:
+			deflate := len(frame) >= compressFrom
+			if p.batch.Load() {
+				frame, deflate = p.gather(frame)
+				out = nil
+				pace.Reset(writeEvery)
+			}
+			if !p.write(compress, frame, deflate) {
 				p.close(0, "")
 				return
 			}
+		case <-pace.C:
+			out = p.out
 		case <-ping.C:
 			if p.conn.WriteControl(pingMessage, nil, time.Now().Add(writeWait)) != nil {
 				p.close(0, "")
@@ -107,9 +128,31 @@ func (p *peer) writeLoop() {
 	}
 }
 
-func (p *peer) write(compress compressor, frame []byte) bool {
+// gather joins frame and those queued behind it into one message, a JSON
+// array of them, and tells whether it is worth compressing: a long frame is,
+// a batch of keystrokes and cursors is not, however many they are.
+func (p *peer) gather(frame []byte) ([]byte, bool) {
+	deflate := len(frame) >= compressFrom
+	if deflate || len(p.out) == 0 {
+		return frame, deflate
+	}
+	b := make([]byte, 0, min(batchBytes, 2*len(frame)*(len(p.out)+1)))
+	b = append(append(b, '['), frame...)
+	for more := true; more && len(b) < batchBytes; {
+		select {
+		case next := <-p.out:
+			b = append(append(b, ','), next...)
+			deflate = deflate || len(next) >= compressFrom
+		default:
+			more = false
+		}
+	}
+	return append(b, ']'), deflate
+}
+
+func (p *peer) write(compress compressor, frame []byte, deflate bool) bool {
 	if compress != nil {
-		compress.EnableWriteCompression(len(frame) >= compressFrom)
+		compress.EnableWriteCompression(deflate)
 	}
 	_ = p.conn.SetWriteDeadline(time.Now().Add(writeWait))
 	return p.conn.WriteMessage(textMessage, frame) == nil
@@ -121,7 +164,7 @@ func (p *peer) drain(compress compressor) {
 	for {
 		select {
 		case frame := <-p.out:
-			if !p.write(compress, frame) {
+			if !p.write(compress, frame, len(frame) >= compressFrom) {
 				return
 			}
 		default:

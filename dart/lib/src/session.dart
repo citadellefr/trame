@@ -659,7 +659,13 @@ class DocSession extends ChangeNotifier {
     } on FormatException {
       return;
     }
-    if (decoded is! Map<String, Object?>) return;
+    // several frames the hub wrote as one message
+    for (final frame in decoded is List ? decoded : [decoded]) {
+      if (frame is Map<String, Object?>) _handle(frame);
+    }
+  }
+
+  void _handle(Map<String, Object?> decoded) {
     switch (decoded['t']) {
       case 'hello':
         _hello(decoded);
@@ -707,6 +713,7 @@ class DocSession extends ChangeNotifier {
     }
     _transport?.send(jsonEncode({
       't': 'sync',
+      'batch': true,
       if (_doc != null && _epoch != null) ...{'epoch': _epoch, 'v': _rev},
     }));
   }

@@ -61,7 +61,8 @@ type Options struct {
 	// SaveDelay is the quiet time after an edit before the document is saved.
 	SaveDelay time.Duration
 	// SaveMaxDelay bounds how long an edit stays unsaved while edits keep
-	// coming, and spaces the retries of a failed save.
+	// coming, and spaces the retries of a failed save. Both delays stretch
+	// for a document that takes long to write.
 	SaveMaxDelay time.Duration
 	// MaxLength bounds a document: its nodes and the UTF-16 code units of
 	// their text.
@@ -91,10 +92,10 @@ var ErrGone = errors.New("trame: document no longer exists")
 
 func (o Options) withDefaults() Options {
 	if o.SaveDelay <= 0 {
-		o.SaveDelay = 2 * time.Second
+		o.SaveDelay = 500 * time.Millisecond
 	}
 	if o.SaveMaxDelay <= 0 {
-		o.SaveMaxDelay = 10 * time.Second
+		o.SaveMaxDelay = 3 * time.Second
 	}
 	if o.MaxLength <= 0 {
 		o.MaxLength = 16 << 20

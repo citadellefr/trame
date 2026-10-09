@@ -19,17 +19,19 @@ const (
 
 // inbound is any frame a client sends:
 //
-//	{"t":"sync","epoch":"…","v":41}
+//	{"t":"sync","epoch":"…","v":41,"batch":true}
 //	{"t":"op","n":7,"v":41,"d":[{"o":"txt","id":"body","x":[{"r":3},{"i":"a"}]}]}
 //	{"t":"eph","d":{...}}
 //
 // A client sends sync first, with the revision it last saw, if any, and
-// sends an edit with the revision it made it on.
+// whether it reads several frames sent as one message, a JSON array of them.
+// It sends an edit with the revision it made it on.
 type inbound struct {
 	T     string          `json:"t"`
 	N     uint64          `json:"n"`
 	V     uint64          `json:"v"`
 	Epoch string          `json:"epoch"`
+	Batch bool            `json:"batch"`
 	D     json.RawMessage `json:"d"`
 
 	// edit is D read as an edit, bad when it is not one: done before the

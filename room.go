@@ -34,9 +34,10 @@ type room struct {
 	// epoch names this stay in memory: revisions count from its start.
 	epoch   string
 	history []edit
-	// nodes is the document as the nodes that create it, kept until the next
-	// edit for the clients that connect together.
-	nodes   []byte
+	// whole is the frame of the whole document for a client none of whose
+	// edits was applied, kept until the next edit for those that connect
+	// together.
+	whole   []byte
 	peers   map[uint32]*peer
 	nextSID uint32
 	acks    map[string]uint64
@@ -219,12 +220,10 @@ func (r *room) sync(p *peer, in *inbound) {
 		return
 	}
 	p.synced = true
+	p.batch.Store(in.Batch)
 	first := r.version - uint64(len(r.history))
 	if in.Epoch != r.epoch || in.V < first || in.V > r.version {
-		if r.nodes == nil {
-			r.nodes, _ = json.Marshal(r.doc.Edit())
-		}
-		p.send(docFrame(r.version, r.acks[p.info.Client], r.nodes))
+		p.send(r.wholeFrame(r.acks[p.info.Client]))
 		return
 	}
 	for i, e := range r.history[in.V-first:] {
@@ -236,6 +235,20 @@ func (r *room) sync(p *peer, in *inbound) {
 		}
 	}
 	p.send(readyFrame(r.version))
+}
+
+// wholeFrame is the whole document, with the last edit of the client applied.
+// Callers hold r.mu.
+func (r *room) wholeFrame(ack uint64) []byte {
+	if ack == 0 && r.whole != nil {
+		return r.whole
+	}
+	nodes, _ := json.Marshal(r.doc.Edit())
+	frame := docFrame(r.version, ack, nodes)
+	if ack == 0 {
+		r.whole = frame
+	}
+	return frame
 }
 
 func (r *room) apply(p *peer, in *inbound) {
@@ -295,7 +308,7 @@ func (r *room) record(e ot.Edit, raw []byte, p *peer, client string, n uint64) {
 		r.history = slices.Clone(r.history[len(r.history)-r.hub.opt.History/2:])
 	}
 	r.version++
-	r.nodes = nil
+	r.whole = nil
 	frame := opFrame(sid, r.version, raw)
 	for _, q := range r.peers {
 		if q != p && q.synced {
@@ -342,23 +355,29 @@ func (r *room) dirty() bool {
 	return r.version != r.saved
 }
 
+// saveRest is how many times what a save took the document then stays
+// unsaved at least: one long to write costs a fifth of a processor at most.
+const saveRest = 4
+
 // saveLoop saves once edits pause for SaveDelay, or SaveMaxDelay after the
 // first unsaved one, whichever comes first.
 func (r *room) saveLoop() {
 	opt := r.hub.opt
+	var took time.Duration
 	for {
 		select {
 		case <-r.kick:
 		case <-r.done:
 			return
 		}
-		deadline := time.Now().Add(opt.SaveMaxDelay)
-		timer := time.NewTimer(opt.SaveDelay)
+		quiet := max(opt.SaveDelay, saveRest*took)
+		deadline := time.Now().Add(max(opt.SaveMaxDelay, saveRest*took))
+		timer := time.NewTimer(quiet)
 	wait:
 		for {
 			select {
 			case <-r.kick:
-				timer.Reset(min(opt.SaveDelay, time.Until(deadline)))
+				timer.Reset(min(quiet, time.Until(deadline)))
 			case <-timer.C:
 				break wait
 			case <-r.done:
@@ -366,7 +385,10 @@ func (r *room) saveLoop() {
 				return
 			}
 		}
-		if err := r.flush(context.Background()); err != nil && !errors.Is(err, ErrGone) {
+		start := time.Now()
+		err := r.flush(context.Background())
+		took = time.Since(start)
+		if err != nil && !errors.Is(err, ErrGone) {
 			time.AfterFunc(opt.SaveMaxDelay, r.requestSave)
 			continue
 		}

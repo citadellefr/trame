@@ -54,7 +54,7 @@ exchanges JSON frames with the hub:
 | From | Frame | Meaning |
 |---|---|---|
 | hub | `hello` | who the client is (`sid`, `id`, `name`), who else is there, which stay in memory of the document (`epoch`) |
-| client | `sync` | the `epoch` and revision `v` of the document it holds, if any |
+| client | `sync` | the `epoch` and revision `v` of the document it holds, if any, and `batch` when it reads several frames sent as one message, a JSON array of them |
 | hub | `doc` | the whole document at revision `v`, as the edit `d` that creates its nodes, and `ack`, the last edit of this client applied |
 | hub | `op`, `ack` … `ready` | or else the edits it missed since `v`, its own acknowledged |
 | client | `op` | an edit `d`, numbered `n`, made on revision `v` |
@@ -84,4 +84,5 @@ go test -race ./...
 go test ./ot -run Vectors -update   # after changing the ot algorithms
 (cd dart && flutter test)          # replays the same vectors
 go test -run '^$' -bench Relay .
+go test -run '^$' -bench Crowd -benchtime 25x .   # 128 people typing
 ```

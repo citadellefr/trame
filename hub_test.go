@@ -2,6 +2,7 @@ package trame
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -297,6 +298,96 @@ func TestOnlyLargeFramesAreCompressed(t *testing.T) {
 	}
 	if len(conn.sizes) != 0 {
 		t.Fatal("small frame compressed")
+	}
+}
+
+func TestFramesLeaveTogetherForAClientThatReadsBatches(t *testing.T) {
+	h := NewHub(trametest.NewStore(), Text, Options{})
+	a, _, _ := join(t, h, "a.txt", Peer{ID: "1"})
+	b := connect(t, h, context.Background(), "a.txt", Peer{ID: "2"})
+	b.Expect("hello")
+	b.Send(`{"t":"sync","batch":true}`)
+	b.Expect("doc")
+	a.Expect("join")
+
+	const sent = 20
+	for i := range sent {
+		a.Send(`{"t":"eph","d":{"i":` + strconv.Itoa(i) + `}}`)
+	}
+	messages, got := 0, 0
+	for got < sent {
+		var raw []byte
+		select {
+		case raw = <-b.Conn.Out:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%d frames of %d", got, sent)
+		}
+		if raw[0] != '[' {
+			raw = append(append([]byte{'['}, raw...), ']')
+		}
+		var frames []trametest.Frame
+		if err := json.Unmarshal(raw, &frames); err != nil {
+			t.Fatalf("message %s: %v", raw, err)
+		}
+		for _, f := range frames {
+			if f.T != "eph" || string(f.D) != `{"i":`+strconv.Itoa(got)+`}` {
+				t.Fatalf("frame %d = %+v", got, f)
+			}
+			got++
+		}
+		messages++
+	}
+	if messages > 2 {
+		t.Fatalf("%d frames left in %d messages", sent, messages)
+	}
+}
+
+func TestGatherCompressesOnlyALongFrame(t *testing.T) {
+	long := []byte(`"` + strings.Repeat("x", compressFrom) + `"`)
+	p := newPeer(trametest.NewConn(), Peer{}, 1)
+	if got, deflate := p.gather([]byte(`1`)); string(got) != `1` || deflate {
+		t.Fatalf("alone: %s, %v", got, deflate)
+	}
+	for range 3 {
+		p.send([]byte(`2`))
+	}
+	if got, deflate := p.gather([]byte(`1`)); string(got) != `[1,2,2,2]` || deflate {
+		t.Fatalf("queued: %d bytes, %v", len(got), deflate)
+	}
+	p = newPeer(trametest.NewConn(), Peer{}, 1)
+	p.send(long)
+	p.send([]byte(`3`))
+	if got, deflate := p.gather([]byte(`1`)); string(got) != `[1,`+string(long)+`,3]` || !deflate {
+		t.Fatalf("with a long frame: %d bytes, %v", len(got), deflate)
+	}
+	p.send([]byte(`2`))
+	if got, deflate := p.gather(long); len(got) != len(long) || !deflate || len(p.out) != 1 {
+		t.Fatalf("a long frame first: %d bytes, %v", len(got), deflate)
+	}
+}
+
+// slowStore takes its time to save.
+type slowStore struct {
+	*trametest.Store
+	takes time.Duration
+}
+
+func (s slowStore) Save(ctx context.Context, key string, data []byte) error {
+	time.Sleep(s.takes)
+	return s.Store.Save(ctx, key, data)
+}
+
+func TestADocumentLongToSaveIsSavedLessOften(t *testing.T) {
+	store := slowStore{trametest.NewStore(), 50 * time.Millisecond}
+	h := NewHub(store, Text, Options{SaveDelay: time.Millisecond, SaveMaxDelay: 5 * time.Millisecond})
+	a, _, _ := join(t, h, "a.txt", Peer{ID: "1"})
+	a.Send(`{"t":"op","n":1,"v":0,"d":[{"o":"txt","id":"body","x":[{"i":"a"}]}]}`)
+	<-store.Saves
+	first := time.Now()
+	a.Send(`{"t":"op","n":2,"v":1,"d":[{"o":"txt","id":"body","x":[{"i":"b"}]}]}`)
+	<-store.Saves
+	if rest := time.Since(first); rest < saveRest*store.takes {
+		t.Fatalf("saved again after %v", rest)
 	}
 }
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- A client that says `batch` in `sync` is written to every 20 ms at most,
+  what waits meanwhile leaving as one message, a JSON array of frames; the
+  first frame after a quiet time still leaves at once. With 128 people
+  typing in one document, each frame was a write to 127 connections: the
+  hub went from two and a half processors to less than half of one
+  (`BenchmarkCrowd`). The Dart session asks for it; a client that does not
+  is served as before.
+- A document is saved 500 ms after the last edit instead of 2 s, and every
+  3 s instead of 10 s while edits keep coming. Both delays stretch to four
+  times what the last save took, for a document long to write.
+- Clients that connect together share the frame of the whole document, not
+  only its encoding: 128 of them no longer hold 128 copies of it.
+
 ## 0.4.0 — 2026-10-09
 
 - The hub does less per keystroke: an edit is read in one scan and decoded

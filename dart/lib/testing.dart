@@ -61,6 +61,7 @@ class FakeHub {
     switch (msg['t']) {
       case 'sync':
         link.synced = true;
+        link.batch = msg['batch'] == true;
         final v = msg['v'] as int? ?? -1;
         final first = version - history.length;
         if (msg['epoch'] != epoch || v < first || v > version) {
@@ -123,6 +124,7 @@ class FakeLink implements DocTransport {
   final String client;
   final int sid;
   var synced = false;
+  var batch = false;
   final up = <Map<String, Object?>>[];
   final down = <Map<String, Object?>>[];
   final sent = <Map<String, Object?>>[];
@@ -160,7 +162,10 @@ class FakeLink implements DocTransport {
 
   bool deliverDown() {
     if (down.isEmpty || _incoming.isClosed) return false;
-    _incoming.add(jsonEncode(down.removeAt(0)));
+    // what waits leaves as one message for a client that reads batches
+    final frames = batch ? down.length : 1;
+    _incoming.add(jsonEncode(frames > 1 ? down.sublist(0, frames) : down.first));
+    down.removeRange(0, frames);
     return true;
   }
 
