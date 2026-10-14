@@ -8,9 +8,8 @@ import (
 
 const (
 	outboxSize   = 512
-	writeWait    = 10 * time.Second
-	pingInterval = 25 * time.Second
-	pongWait     = 60 * time.Second
+	writeWait = 10 * time.Second
+	pongWait  = 60 * time.Second
 
 	// compressFrom is the smallest frame worth compressing, when the
 	// connection negotiated it: the document sent on connection, long pastes.
@@ -21,6 +20,14 @@ const (
 	writeEvery = 20 * time.Millisecond
 	batchBytes = 64 << 10
 )
+
+// pingInterval is how often the hub pings, and beats. Overridden by the tests.
+var pingInterval = 25 * time.Second
+
+// beatFrame goes with every ping: a browser answers pings on its own and
+// shows them to no page, so this is the only sign a page has that the hub is
+// still there.
+var beatFrame = []byte(`{"t":"beat"}`)
 
 // compressor is implemented by the Conn of gorilla/websocket and
 // fasthttp/websocket.
@@ -112,7 +119,8 @@ func (p *peer) writeLoop() {
 		case <-pace.C:
 			out = p.out
 		case <-ping.C:
-			if p.conn.WriteControl(pingMessage, nil, time.Now().Add(writeWait)) != nil {
+			if p.conn.WriteControl(pingMessage, nil, time.Now().Add(writeWait)) != nil ||
+				!p.write(compress, beatFrame, false) {
 				p.close(0, "")
 				return
 			}

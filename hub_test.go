@@ -120,6 +120,15 @@ func TestEditFramesAreReadWhateverTheirForm(t *testing.T) {
 	}
 }
 
+func TestHubBeatsWithEveryPing(t *testing.T) {
+	defer func(d time.Duration) { pingInterval = d }(pingInterval)
+	pingInterval = 20 * time.Millisecond
+	h := NewHub(trametest.NewStore(), Text, fastOptions())
+	c, _, _ := join(t, h, "a.txt", Peer{ID: "0"})
+	c.Expect("beat")
+	c.Expect("beat")
+}
+
 func TestReconnectCatchesUp(t *testing.T) {
 	h := NewHub(trametest.NewStore(), Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})
 	keeper, hello, _ := join(t, h, "a.txt", Peer{ID: "0"})

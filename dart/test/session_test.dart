@@ -105,6 +105,30 @@ void main() {
     expect(b.text, hub.text);
   });
 
+  test('a hub that beat and went quiet is taken for gone', () async {
+    final s = DocSession(hub.connect, silence: const Duration(milliseconds: 50))..start();
+    sessions.add(s);
+    await pumpEventQueue();
+    await hub.settle();
+    final link = hub.links.single;
+
+    // never heard beating: not held to it
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(s.status, DocStatus.online);
+
+    link.frame({'t': 'beat'});
+    link.deliverDown();
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    link.frame({'t': 'beat'});
+    link.deliverDown();
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(s.status, DocStatus.online);
+
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(s.status, DocStatus.offline);
+    expect(hub.links, isNot(contains(link)));
+  });
+
   test('an edit whose acknowledgement was lost is not applied twice', () async {
     final a = await open('a');
     final b = await open('b');

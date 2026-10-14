@@ -187,12 +187,14 @@ class DocSession extends ChangeNotifier {
     this.drafts,
     this.draftDelay = const Duration(seconds: 2),
     this.othersPrevail = false,
+    this.silence = const Duration(seconds: 65),
   }) : _clientId = clientId ?? randomId();
 
   static const _historyLimit = 500;
   static const _typingPause = Duration(milliseconds: 800);
   static const _presenceEvery = Duration(milliseconds: 50);
   static const _backoff = [1, 2, 5, 10, 20, 30];
+  static final _random = math.Random();
 
   final DocConnector _connect;
   String _clientId;
@@ -209,6 +211,12 @@ class DocSession extends ChangeNotifier {
   /// How long unconfirmed edits wait before the draft is written, which
   /// then follows at the same pace.
   final Duration draftDelay;
+
+  /// How long a hub that beats may stay quiet before the link is taken for
+  /// dead: a browser never shows the pings, and a link the network dropped
+  /// without a word otherwise looks open until TCP gives up, many minutes
+  /// later, with every edit of the meantime sent into it.
+  final Duration silence;
 
   String get clientId => _clientId;
 
@@ -240,6 +248,7 @@ class DocSession extends ChangeNotifier {
   DocTransport? _transport;
   StreamSubscription<String>? _subscription;
   Timer? _retry;
+  Timer? _quiet;
 
   Tree? _doc;
   Tree _confirmed = Tree();
@@ -325,6 +334,8 @@ class DocSession extends ChangeNotifier {
   Future<void> stop() async {
     _running = false;
     _retry?.cancel();
+    _quiet?.cancel();
+    _quiet = null;
     _presenceTimer?.cancel();
     final transport = _transport;
     _transport = null;
@@ -620,6 +631,8 @@ class DocSession extends ChangeNotifier {
 
   void _dropped(DocTransport transport) {
     if (!identical(transport, _transport)) return;
+    _quiet?.cancel();
+    _quiet = null;
     _transport = null;
     _subscription = null;
     _synced = false;
@@ -638,10 +651,25 @@ class DocSession extends ChangeNotifier {
     _scheduleRetry();
   }
 
+  /// A hub that beat and then went quiet for [silence]: the link is dropped
+  /// and opened again, as if it had been closed.
+  void _onSilence() {
+    _quiet = null;
+    final transport = _transport;
+    if (transport == null) return;
+    unawaited(_subscription?.cancel());
+    _dropped(transport);
+    // not awaited: closing a link nothing answers on may never complete
+    unawaited(transport.close());
+  }
+
   void _scheduleRetry() {
-    final delay = _backoff[math.min(_attempt, _backoff.length - 1)];
+    final step = _backoff[math.min(_attempt, _backoff.length - 1)];
     _attempt++;
-    _retry = Timer(Duration(seconds: delay), () {
+    // spread from half to one and a half of the step: every client a cut
+    // dropped would otherwise come back in the same second
+    final delay = Duration(milliseconds: (step * 1000 * (0.5 + _random.nextDouble())).round());
+    _retry = Timer(delay, () {
       if (_running) unawaited(_open());
     });
   }
@@ -658,6 +686,12 @@ class DocSession extends ChangeNotifier {
       decoded = jsonDecode(raw);
     } on FormatException {
       return;
+    }
+    // a hub from before the beat says nothing for minutes on a healthy link:
+    // only one that was heard beating is held to it
+    if ((decoded is Map && decoded['t'] == 'beat') || _quiet != null) {
+      _quiet?.cancel();
+      _quiet = Timer(silence, _onSilence);
     }
     // several frames the hub wrote as one message
     for (final frame in decoded is List ? decoded : [decoded]) {

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The hub sends a `beat` frame with every ping. A browser answers pings on
+  its own and shows them to no page; the Dart session now takes a link that
+  beat and then stayed quiet for 65 s (`silence`) for gone and reconnects,
+  where a link the network dropped without a word looked open until TCP gave
+  up, many minutes later. A hub that never beats is not held to it, and a
+  client that does not know the frame ignores it.
+- The Dart session spreads each reconnection delay from half to one and a
+  half of its step, so that the clients a cut dropped do not all come back
+  in the same second.
 - A client that says `batch` in `sync` is written to every 20 ms at most,
   what waits meanwhile leaving as one message, a JSON array of frames; the
   first frame after a quiet time still leaves at once. With 128 people
