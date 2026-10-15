@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-15
 
 - The hub sends a `beat` frame with every ping. A browser answers pings on
   its own and shows them to no page; the Dart session now takes a link that
