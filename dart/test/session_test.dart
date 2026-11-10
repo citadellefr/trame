@@ -28,6 +28,11 @@ void main() {
     sessions.clear();
   });
 
+  testWidgets('a disposed session starts no timer', (tester) async {
+    final s = DocSession(hub.connect)..dispose();
+    s.select(const DocSelection.collapsed('a', 0));
+  });
+
   test('comes online with the document', () async {
     final s = await open('me');
     expect(s.status, DocStatus.online);
