@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 — 2026-11-10
 
 - A session that was disposed no longer starts a timer: a selection or an
   edit made after `dispose` used to start the presence or draft timer again.

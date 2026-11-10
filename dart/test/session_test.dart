@@ -367,6 +367,22 @@ void _draftTests() {
   late FakeHub hub;
   setUp(() => hub = FakeHub('one\ntwo'));
 
+  testWidgets('a session disposed by the edit it is told of keeps no draft timer', (tester) async {
+    final s = DocSession(hub.connect, drafts: _Drafts(), draftDelay: const Duration(milliseconds: 20))..start();
+    await tester.runAsync(() async {
+      await pumpEventQueue();
+      await hub.settle();
+    });
+    s.changes.listen((_) {
+      try {
+        s.dispose();
+      } on StateError {
+        // the changes stream is closed while it fires; the session is disposed all the same
+      }
+    });
+    s.replace(0, 0, 'a');
+  });
+
   test('edits unconfirmed when the app closes are found again and reach the document', () async {
     final drafts = _Drafts();
     final a = DocSession(hub.connect, clientId: 'a', drafts: drafts, draftDelay: const Duration(milliseconds: 20))..start();
