@@ -11,6 +11,8 @@ rebases them over those of others. It is what
 [Citadelle](https://github.com/citadellefr) and released under the MIT
 license.
 
+Where things are and how to test fast: [docs/carte.md](docs/carte.md).
+
 ## Principles
 
 - **Nobody waits.** A client applies its edits as it makes them and rebases
