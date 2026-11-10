@@ -37,6 +37,7 @@ Dart (flutter absent du PATH, via nix-shell ; `dart test` ne convient pas, `flut
 - analyse : `cd dart && TMPDIR=/data/tmp nix-shell ../../app/shell.nix --run 'flutter analyze'` (~20 s)
 - un fichier : `cd dart && TMPDIR=/data/tmp nix-shell ../../app/shell.nix --run 'flutter test test/delta_test.dart'`
   mesuré : 82 s au total (démarrage de nix-shell compris, 1 s de test), sortie `+5: All tests passed!`
+- voie rapide (4 à 5 s au lieu de 22 s pour un fichier, mêmes sorties) : `TMPDIR=/data/tmp nix-shell ../../app/shell.nix --run 'export -p' > /data/tmp/app-env.sh` une fois, puis `cd dart && bash -c '. /data/tmp/app-env.sh; export TMPDIR=/data/tmp; flutter test -r failures-only test/<fichier>.dart'` ; détail dans app/docs/carte.md, « Construire et tester vite »
 Pas de suite complète en boucle rapide.
 
 ## Publier
