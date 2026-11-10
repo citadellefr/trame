@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A session that was disposed no longer starts a timer: a selection or an
+  edit made after `dispose` used to start the presence or draft timer again.
+
 ## 0.5.0 — 2026-10-15
 
 - The hub sends a `beat` frame with every ping. A browser answers pings on

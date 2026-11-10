@@ -443,7 +443,7 @@ class DocSession extends ChangeNotifier {
   /// Keeps the draft a moment after the hub has failed to confirm what this
   /// client holds, and drops it once everything is.
   void _draftChanged() {
-    if (drafts == null || _doc == null) return;
+    if (drafts == null || _doc == null || _disposed) return;
     _draftTimer ??= Timer(draftDelay, () => unawaited(_writeDraft()));
   }
 
@@ -535,7 +535,7 @@ class DocSession extends ChangeNotifier {
   }
 
   void _schedulePresence() {
-    if (_presenceTimer?.isActive ?? false) return;
+    if (_disposed || (_presenceTimer?.isActive ?? false)) return;
     _presenceTimer = Timer(_presenceEvery, _flushPresence);
   }
 
