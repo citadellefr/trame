@@ -428,6 +428,63 @@ func TestSaveFailureIsReportedAndRetried(t *testing.T) {
 	}
 }
 
+func TestSnapshotReadsADocumentWithoutPresence(t *testing.T) {
+	store := trametest.NewStore()
+	h := NewHub(store, Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})
+	ctx := context.Background()
+
+	frame, err := h.Snapshot(ctx, "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f trametest.Frame
+	if err := json.Unmarshal(frame, &f); err != nil || f.T != "doc" || f.V != 0 || f.Ack != 0 {
+		t.Fatalf("snapshot = %s (%v)", frame, err)
+	}
+	h.mu.Lock()
+	loaded := len(h.rooms)
+	h.mu.Unlock()
+	if loaded != 0 {
+		t.Fatalf("%d documents still loaded", loaded)
+	}
+
+	alice, _, _ := join(t, h, "a.txt", Peer{ID: "1", Client: "ca"})
+	alice.Send(`{"t":"op","n":1,"v":0,"d":[{"o":"txt","id":"body","x":[{"i":"X"}]}]}`)
+	alice.Expect("ack")
+
+	frame, err = h.Snapshot(ctx, "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice.Quiet()
+	f = trametest.Frame{}
+	if err := json.Unmarshal(frame, &f); err != nil {
+		t.Fatal(err)
+	}
+	if f.T != "doc" || f.V != 1 || f.Ack != 0 || string(f.D) != `[{"o":"new","id":"body","t":"text","k":"V","x":[{"i":"X\n"}]}]` {
+		t.Fatalf("snapshot = %s", frame)
+	}
+	_, _, joined := join(t, h, "a.txt", Peer{ID: "2"})
+	if joined.V != f.V || string(joined.D) != string(f.D) {
+		t.Fatalf("joined %+v %s, snapshot %s", joined, joined.D, frame)
+	}
+}
+
+func TestSnapshotFailsWhenTheDocumentCannotBeLoaded(t *testing.T) {
+	store := trametest.NewStore()
+	store.Fail(errors.New("disk"))
+	h := NewHub(store, Text, Options{})
+	if _, err := h.Snapshot(context.Background(), "a.txt"); err == nil {
+		t.Fatal("no error")
+	}
+	if err := h.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Snapshot(context.Background(), "a.txt"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestLastLeaveSavesAndUnloads(t *testing.T) {
 	store := trametest.NewStore()
 	h := NewHub(store, Text, Options{SaveDelay: time.Hour, SaveMaxDelay: time.Hour})

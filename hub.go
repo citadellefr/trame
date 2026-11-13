@@ -71,6 +71,21 @@ func (h *Hub) Use(ctx context.Context, key string, f func(File) error) error {
 	return f(r.file)
 }
 
+// Snapshot returns the current state of a document as the "doc" frame a peer
+// receives on joining (version v, ack 0, data d), reading the document if
+// nobody has it open. It announces no presence and changes nothing in the
+// document. The frame is shared: the caller must not modify it.
+func (h *Hub) Snapshot(ctx context.Context, key string) ([]byte, error) {
+	r, err := h.acquire(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	defer h.release(r)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.wholeFrame(0), nil
+}
+
 // Disconnect ends every connection to a document, e.g. when the file behind
 // it is deleted or moved.
 func (h *Hub) Disconnect(key, reason string) {
