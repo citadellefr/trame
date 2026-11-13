@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2 — 2026-11-13
+
+- `Hub.Snapshot` returns the state of a document, the `doc` frame a peer
+  receives on joining, reading it if nobody has it open. It announces no
+  presence: reading a document through `Serve` made a peer appear then
+  disappear for the editors connected.
+
 ## 0.5.1 — 2026-11-10
 
 - A session that was disposed no longer starts a timer: a selection or an
